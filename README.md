@@ -38,7 +38,7 @@ copy .env.example .env
 | 模式 | 切换 | 工具数 | 用途 |
 |------|------|--------|------|
 | **[Write] 写作** | `/w`（默认） | 44 | 内容创作、管理、搜索、导出 |
-| **[Plan] 规划** | `/p` | 14 | 创意讨论、剧情分析（只读） |
+| **[Plan] 规划** | `/p` | 34 | 创意讨论、剧情分析 + 只读查询 |
 | **[Auto] 自主** | `/a` | 54 | 批量自动写作 + 检查点保护 |
 
 自主模式下：Agent 连续循环推进，轮间按 **Enter** 暂停说话，`/sa` 退出。
@@ -69,21 +69,18 @@ copy .env.example .env
 
 `export_outline` `export_yaml_backup`
 
-**世界观 (2)**
-`get_world_setting` `brainstorm_world_building_agent`
-
 **自定义文档 (5)**
 `add_custom_document` `get_custom_document` `list_custom_documents` `update_custom_document` `delete_custom_document`
 
 **跨模式 (3)**
 `switch_mode` `save_agent_memory` `get_agent_memory`
 
-**故事信息 (2)**
-`update_story_info` `suggest_plot_direction`
+**故事信息 (1)**
+`update_story_info`
 
-### 规划模式 (14 个)
+### 规划模式 (34 个)
 
-8 个分析工具 + 3 个持久化工具 + 3 个跨模式工具
+8 个分析工具 + 3 个持久化工具 + 20 个只读查询工具 + 3 个跨模式工具
 
 | 工具 | 用途 |
 |------|------|
@@ -237,7 +234,7 @@ WAL/
 └──────────┬──────────────────┘
            │
 ┌──────────▼──────────────────┐
-│  44+14+54 个 Agent Tools     │
+│  44+34+54 个 Agent Tools     │
 │  → Core Managers → SQLite   │
 └─────────────────────────────┘
 ```
@@ -250,6 +247,7 @@ WAL/
 - **上下文保护**: 滑动窗口 + 摘要压缩 + 结果截断 + RAG 检索注入
 - **数据安全**: 检查点备份、回滚前自动备份
 - **持久记忆**: `save_agent_memory` / `get_agent_memory`，重启不丢失
+- **终端兼容**: 自动检测 Win10 蓝底控制台 → 改黑色背景；老控制台 emoji→ASCII 自动降级
 
 ## 许可
 

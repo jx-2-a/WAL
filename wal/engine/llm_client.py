@@ -41,7 +41,7 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
         temperature: float = 0.7,
-        max_tokens: int = 8192,
+        max_tokens: int = 16384,
         stream: bool = False,
     ) -> dict:
         """发送 OpenAI 兼容请求，返回完整响应
@@ -87,7 +87,7 @@ class LLMClient:
         messages: list[dict],
         tools: list[dict] | None = None,
         temperature: float = 0.7,
-        max_tokens: int = 8192,
+        max_tokens: int = 16384,
     ):
         """流式请求 — 逐 token 输出"""
         body = {
@@ -169,7 +169,7 @@ class LLMClient:
     # ============================================================
 
     def chat_simple(self, system_prompt: str, user_message: str,
-                    temperature: float = 0.7, max_tokens: int = 8192) -> str:
+                    temperature: float = 0.7, max_tokens: int = 16384) -> str:
         """简单对话：system + user → text 回复"""
         messages = []
         if system_prompt:
@@ -179,7 +179,7 @@ class LLMClient:
         return result["content"]
 
     def chat_with_tools(self, messages: list[dict], tools: list[dict],
-                        temperature: float = 0.7, max_tokens: int = 8192) -> dict:
+                        temperature: float = 0.7, max_tokens: int = 16384) -> dict:
         """带工具的对话"""
         return self.chat(messages, tools=tools, temperature=temperature, max_tokens=max_tokens)
 

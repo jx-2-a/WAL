@@ -116,13 +116,13 @@ class TerminalREPL:
         self.current_mode = new_mode
         if new_mode == AgentMode.PLANNING:
             color = PLAN_COLOR
-            label = "[Plan]"
+            label = "[P]"
         elif new_mode == AgentMode.AUTONOMOUS:
             color = AUTO_COLOR
-            label = "[Auto]"
+            label = "[A]"
         else:
             color = WRITE_COLOR
-            label = "[Write]"
+            label = "[W]"
         try:
             self.console.print(f"\n[{color}]{label} 已切换到 {new_mode.value} 模式[/{color}]")
         except UnicodeEncodeError:
@@ -147,20 +147,17 @@ class TerminalREPL:
             # ---- 模式指示器 ----
             if self.current_mode == AgentMode.PLANNING:
                 mode_color = PLAN_COLOR
+                mode_tag = "P"
             elif self.current_mode == AgentMode.AUTONOMOUS:
                 mode_color = AUTO_COLOR
+                mode_tag = "A"
             else:
                 mode_color = ACCENT
-            mode_label = self.current_mode.value.upper()
+                mode_tag = "W"
 
             # ---- 获取用户输入 ----
             try:
-                if self.current_mode == AgentMode.AUTONOMOUS:
-                    prompt = (
-                        f"\n[bold {AUTO_COLOR}][AUTO] 你说 >[/bold {AUTO_COLOR}] "
-                    )
-                else:
-                    prompt = f"\n[bold {mode_color}][{mode_label}] You >[/bold {mode_color}] "
+                prompt = f"\n[bold {mode_color}][{mode_tag}] You >[/bold {mode_color}] "
                 user_input = self.console.input(prompt)
             except (KeyboardInterrupt, EOFError):
                 if self.current_mode == AgentMode.AUTONOMOUS:
@@ -197,7 +194,7 @@ class TerminalREPL:
             if user_input.lower() in ("/auto", "/a"):
                 self._switch_to_autonomous()
                 self.console.print(
-                    f"\n[{AUTO_COLOR}]━━━ 自主模式 — 等你说完就开始自动推进 ━━━[/{AUTO_COLOR}]"
+                    f"\n[{AUTO_COLOR}]━━━ 自主模式 — 设定方向后开始自动推进 ━━━[/{AUTO_COLOR}]"
                 )
                 self.console.print(
                     f"[dim]轮间按 Enter 暂停，Ctrl+C 强制中断，/sa 退出[/dim]"
@@ -246,7 +243,9 @@ class TerminalREPL:
             AgentMode.AUTONOMOUS: AUTO_COLOR,
             AgentMode.WRITING: ACCENT,
         }.get(self.current_mode, ACCENT)
-        agent_label = f"Agent [{self.current_mode.value}]"
+        agent_tag = {"writing": "W", "planning": "P", "autonomous": "A"}.get(
+            self.current_mode.value, "W")
+        agent_label = f"[{agent_tag}] Agent"
         self.console.print(f"\n[bold {agent_color}]{agent_label} >[/bold {agent_color}]")
         self.console.print("─" * 60)
 
@@ -449,8 +448,8 @@ class TerminalREPL:
 
 ```
 分析一下目前的剧情漏洞
-给叶凡构思一个角色弧光
-评估第1章到第10章的节奏
+给主角构思一个角色弧光
+评估最近几章的节奏
 有什么好的剧情转折方向？
 世界观还有哪些可以扩展的地方？
 ```
@@ -481,13 +480,13 @@ class TerminalREPL:
 
 ```
 帮我看看目前的剧情进度
-第3章该怎么写？给我写作上下文
-帮我写第1章的第一个场景
+下一章该怎么写？给我写作上下文
+帮我写当前章节的下一个场景
 检查一下剧情健康度
-叶凡的角色档案是什么？
+主角的角色档案是什么？
 给我列出所有未收束的支线
-添加一个角色：林婉儿，主角的师姐
-把主线-崛起之路 的第3个情节点标记为完成
+添加一个角色：配角名，主角的关系
+把某条剧情线的某个情节点标记为完成
 ```
 """
         self.console.print(Markdown(help_text))

@@ -19,6 +19,33 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# ---- 终端能力检测 + 蓝底修复 ----
+function Test-EmojiSupport {
+    # Windows Terminal → 完美支持 Emoji
+    if ($env:WT_SESSION) { return $true }
+    # VSCode / Cursor / modern terminals
+    if ($env:TERM_PROGRAM) { return $true }
+    # 老 conhost (Win10 blue background) → Emoji 显示差
+    return $false
+}
+
+# 修复 Win10 蓝底看不清
+try {
+    $bg = $Host.UI.RawUI.BackgroundColor
+    if ($bg -eq [ConsoleColor]::DarkBlue -or $bg -eq [ConsoleColor]::Blue) {
+        $Host.UI.RawUI.BackgroundColor = "Black"
+        $Host.UI.RawUI.ForegroundColor = "White"
+        Clear-Host
+    }
+} catch {
+    # VSCode/ISE 等环境下 RawUI 不可用，忽略
+}
+
+# 传递 emoji 检测结果给 Python
+if (-not (Test-EmojiSupport)) {
+    $env:WAL_NO_EMOJI = "1"
+}
+
 # ---- 帮助 ----
 if ($Help) {
     Write-Host @"
