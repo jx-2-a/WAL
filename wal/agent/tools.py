@@ -562,6 +562,85 @@ def add_volume_tool(project_name: str, title: str, part_id: str = "",
     }
 
 
+def delete_volume_tool(project_name: str, volume_id: str) -> dict:
+    """删除指定卷及其所有章节和场景
+
+    会同时清理卷下所有章节、场景内容和 FTS 索引。
+    用于清理空卷或误创建的卷。
+
+    Args:
+        project_name: 项目名称
+        volume_id: 卷ID（如 vol_001）
+
+    Returns:
+        {"deleted": True, "volume_id": "vol_001"} 或 {"error": "..."}
+    """
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.delete_volume(volume_id)
+
+
+def delete_plot_line_tool(project_name: str, plot_id: str) -> dict:
+    """删除指定剧情线及其下所有情节点
+
+    用于清理重复、错误或废弃的剧情线。
+
+    Args:
+        project_name: 项目名称
+        plot_id: 剧情线ID（如 plot_001）
+
+    Returns:
+        {"deleted": True, "plot_id": "plot_001"} 或 {"error": "..."}
+    """
+    proj = _get_project_path(project_name)
+    pm = PlotManager(proj)
+    pm.load()
+    # 检查是否存在
+    existing = pm.get_plot_line(plot_id)
+    if not existing:
+        return {"error": f"剧情线 {plot_id} 不存在"}
+    name = existing.get("name", "") or getattr(existing, 'name', '')
+    ok = pm.delete_plot_line(plot_id)
+    if ok:
+        return {"deleted": True, "plot_id": plot_id, "name": name}
+    return {"error": f"删除剧情线 {plot_id} 失败"}
+
+
+def delete_character_tool(project_name: str, char_id: str) -> dict:
+    """删除指定角色及其所有关系
+
+    会同时清理角色关联的所有人际关系记录。
+
+    Args:
+        project_name: 项目名称
+        char_id: 角色ID（如 char_001）或角色名
+
+    Returns:
+        {"deleted": True, "char_id": "char_001"} 或 {"error": "..."}
+    """
+    proj = _get_project_path(project_name)
+    cm = CharacterManager(proj)
+    cm.load()
+    # 支持按名字查找
+    char = cm.get_character(char_id)
+    if not char:
+        # 尝试按名字搜索
+        all_chars = cm.list_characters()
+        for c in all_chars:
+            if getattr(c, 'name', '') == char_id:
+                char = c
+                char_id = getattr(c, 'id', char_id)
+                break
+    if not char:
+        return {"error": f"角色 {char_id} 不存在"}
+    name = getattr(char, 'name', char_id)
+    ok = cm.delete_character(char_id)
+    if ok:
+        return {"deleted": True, "char_id": char_id, "name": name}
+    return {"error": f"删除角色 {char_id} 失败"}
+
+
 def delete_scene_tool(project_name: str, chapter_number: int,
                        scene_index: int) -> dict:
     """删除指定场景"""

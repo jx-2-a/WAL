@@ -212,6 +212,36 @@ class StoryManager:
                         break
         return volume
 
+    def delete_volume(self, volume_id: str) -> dict:
+        """删除指定卷及其所有章节和场景
+
+        同时清理 FTS 全文索引和内存模型。
+        如果卷下有章节，会一并删除所有章节及其场景。
+
+        Args:
+            volume_id: 卷ID（如 vol_001）
+
+        Returns:
+            {"deleted": True, "volume_id": "vol_001"}
+            或 {"error": "..."}
+        """
+        self._ensure_story_exists()
+        vol = self.get_volume(volume_id)
+        if not vol:
+            return {"error": f"卷 {volume_id} 不存在"}
+        # 删除卷下所有章节
+        if self._story:
+            for ch in list(self._story.chapters):
+                if getattr(ch, 'volume_id', '') == volume_id:
+                    self.delete_chapter(ch.number)
+        # 从内存模型中移除
+        if self._story:
+            for part in self._story.parts:
+                part.volumes = [v for v in part.volumes if v.id != volume_id]
+        # 从数据库删除
+        self.repo.delete_volume(volume_id)
+        return {"deleted": True, "volume_id": volume_id, "title": vol.title}
+
     def get_volume(self, volume_id: str) -> Optional[Volume]:
         """获取指定卷"""
         if self._story:

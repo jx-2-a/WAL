@@ -681,6 +681,57 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "delete_volume",
+            "description": "删除指定卷及其所有章节和场景。会同时清理卷下所有章节、场景内容和FTS索引。用于清理空卷、测试卷或误创建的卷。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "volume_id": {
+                        "type": "string",
+                        "description": "要删除的卷ID（如 vol_001）",
+                    },
+                },
+                "required": ["volume_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_plot_line",
+            "description": "删除指定剧情线及其下所有情节点。用于清理重复、错误或废弃的剧情线。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plot_id": {
+                        "type": "string",
+                        "description": "要删除的剧情线ID（如 plot_001）",
+                    },
+                },
+                "required": ["plot_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_character",
+            "description": "删除指定角色及其所有关系记录。支持按角色ID或角色名查找。会同时清理该角色关联的所有人际关系。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "char_id": {
+                        "type": "string",
+                        "description": "要删除的角色ID（如 char_001）或角色名",
+                    },
+                },
+                "required": ["char_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "delete_scene",
             "description": "删除章节中的指定场景。会同时清理全文索引。",
             "parameters": {
@@ -1070,6 +1121,9 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         set_chapter_status,
         update_chapter_info,
         add_volume_tool,
+        delete_volume_tool,
+        delete_plot_line_tool,
+        delete_character_tool,
         delete_scene_tool,
     )
     from wal.agent.memory_tools import save_agent_memory, get_agent_memory
@@ -1197,6 +1251,18 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
             arguments.get("part_id", ""),
             arguments.get("summary", ""),
             arguments.get("theme", ""),
+        ),
+        "delete_volume": lambda: delete_volume_tool(
+            project_name,
+            arguments["volume_id"],
+        ),
+        "delete_plot_line": lambda: delete_plot_line_tool(
+            project_name,
+            arguments["plot_id"],
+        ),
+        "delete_character": lambda: delete_character_tool(
+            project_name,
+            arguments["char_id"],
         ),
         "delete_scene": lambda: delete_scene_tool(
             project_name,
