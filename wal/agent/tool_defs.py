@@ -272,6 +272,68 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "update_character",
+            "description": "更新角色档案。用于角色成长、性格变化、外貌改变、动机转变等。所有参数可选，只传要更新的字段即可。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "char_id": {
+                        "type": "string",
+                        "description": "角色ID（如 char_001）或角色名",
+                    },
+                    "personality_traits": {
+                        "type": "string",
+                        "description": "新的性格特征（逗号分隔），如 '勇敢,多疑,坚韧'。覆盖原有特征。",
+                    },
+                    "motivation": {
+                        "type": "string",
+                        "description": "新的核心动机",
+                    },
+                    "appearance": {
+                        "type": "string",
+                        "description": "新的外貌描述",
+                    },
+                    "age": {
+                        "type": "string",
+                        "description": "新的年龄（可为范围或描述）",
+                    },
+                    "background_story": {
+                        "type": "string",
+                        "description": "补充的背景故事",
+                    },
+                    "arc_progress": {
+                        "type": "string",
+                        "description": "弧光进度描述（如 '弧光中期：从孤僻走向信任'）",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "备注（如更新的原因）",
+                    },
+                },
+                "required": ["char_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_chapter_artifacts",
+            "description": "查看指定章节关联的所有状态数据（角色快照、情节点、伏笔引用、场景数）。重写某章前先用此工具检查哪些状态会被删除操作级联清理，确保重写后重新记录。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter_number": {
+                        "type": "integer",
+                        "description": "要检查的章节号",
+                    },
+                },
+                "required": ["chapter_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_volume_context",
             "description": "获取指定卷的完整写作上下文：卷主题、摘要、章节列表及各自进度、伏笔状态",
             "parameters": {
@@ -1124,6 +1186,7 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         delete_volume_tool,
         delete_plot_line_tool,
         delete_character_tool,
+        get_chapter_artifacts,
         delete_scene_tool,
     )
     from wal.agent.memory_tools import save_agent_memory, get_agent_memory
@@ -1220,6 +1283,11 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         # Extra tools defined inline
         "add_chapter": lambda: _add_chapter(project_name, arguments),
         "add_character": lambda: _add_character(project_name, arguments),
+        "update_character": lambda: _update_character(project_name, arguments),
+        "get_chapter_artifacts": lambda: get_chapter_artifacts(
+            project_name,
+            arguments["chapter_number"],
+        ),
         "export_yaml_backup": lambda: export_yaml_backup(project_name),
         "export_novel_files": lambda: export_novel_files(
             project_name,
@@ -1347,6 +1415,62 @@ def _add_character(project_name: str, args: dict) -> dict:
         personality_traits=traits_list,
     )
     return {"id": c.id, "name": c.name, "role": c.role}
+
+
+def _update_character(project_name: str, args: dict) -> dict:
+    """内部：更新角色档案"""
+    import os
+    from pathlib import Path
+    from wal.core import CharacterManager
+
+    proj_path = str(Path(os.environ.get("WAL_PROJECTS", "projects")) / project_name)
+    cm = CharacterManager(proj_path)
+    cm.load()
+
+    char_id = args["char_id"]
+    # 支持按名字查找
+    char = cm.get_character(char_id)
+    if not char:
+        all_chars = cm.list_characters()
+        for c in all_chars:
+            if getattr(c, 'name', '') == char_id:
+                char = c
+                char_id = getattr(c, 'id', char_id)
+                break
+    if not char:
+        return {"error": f"角色 '{args['char_id']}' 不存在"}
+
+    # 收集要更新的字段
+    updates = {}
+    field_map = {
+        "personality_traits": "personality_traits",
+        "motivation": "motivation",
+        "appearance": "appearance",
+        "age": "age",
+        "background_story": "background_story",
+        "arc_progress": "arc_progress",
+        "notes": "notes",
+    }
+    for arg_key, model_key in field_map.items():
+        if arg_key in args and args[arg_key]:
+            if arg_key == "personality_traits":
+                # 逗号分隔 → list
+                updates[model_key] = [t.strip() for t in args[arg_key].split(",") if t.strip()]
+            else:
+                updates[model_key] = args[arg_key]
+
+    if not updates:
+        return {"error": "没有提供要更新的字段", "hint": "至少传一个可更新字段"}
+
+    cm.update_character(char_id, **updates)
+    # 重新读取返回最新状态
+    updated = cm.get_character(char_id)
+    return {
+        "updated": True,
+        "char_id": char_id,
+        "name": getattr(updated, 'name', ''),
+        "changes": list(updates.keys()),
+    }
 
 
 def _add_plot_line(project_name: str, args: dict) -> dict:

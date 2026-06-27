@@ -127,6 +127,30 @@ class PlotRepository(DatabaseRepository):
     def delete_points_by_plot(self, plot_id: str) -> int:
         return self._delete("plot_points", "plot_id = ?", (plot_id,))
 
+    def delete_points_by_chapter(self, chapter_number: int) -> int:
+        """删除指定章节的所有情节点（用于章节重写时级联清理）"""
+        return self._delete("plot_points", "chapter_assigned = ?", (chapter_number,))
+
+    def reset_foreshadowing_chapter(self, chapter_number: int) -> dict:
+        """清空与指定章节关联的伏笔引用（埋笔章号和回收章号）
+
+        用于章节重写时——伏笔本身保留（可能是跨章的），
+        但清除与本章的关联标记，避免指向不存在的章节内容。
+        """
+        created = self._update(
+            "foreshadowings",
+            {"created_at_chapter": 0},
+            "created_at_chapter = ?",
+            (chapter_number,),
+        )
+        resolved = self._update(
+            "foreshadowings",
+            {"resolved_at_chapter": 0},
+            "resolved_at_chapter = ?",
+            (chapter_number,),
+        )
+        return {"cleared_created": created, "cleared_resolved": resolved}
+
     def update_point_field(self, point_id: str, key: str, value) -> None:
         if isinstance(value, (list, dict)):
             value = self._to_json(value)

@@ -641,6 +641,65 @@ def delete_character_tool(project_name: str, char_id: str) -> dict:
     return {"error": f"删除角色 {char_id} 失败"}
 
 
+def get_chapter_artifacts(project_name: str, chapter_number: int) -> dict:
+    """查看指定章节关联的所有状态数据（重写前检查）
+
+    列出该章的全部：角色快照、剧情情节点、伏笔引用、场景数。
+    用于重写章节前了解哪些状态会被级联清理影响。
+
+    Args:
+        project_name: 项目名称
+        chapter_number: 章节号
+
+    Returns:
+        {"chapter_number": N, "snapshots": [...], "plot_points": [...],
+         "foreshadowings": [...], "scene_count": N}
+    """
+    proj = _get_project_path(project_name)
+    from ..storage.char_repo import CharacterRepository
+    from ..storage.plot_repo import PlotRepository
+    from ..storage.story_repo import StoryRepository
+    from ..storage.database import Database
+
+    db_path = Path(proj) / "wal.db"
+    db = Database(str(db_path))
+
+    # 角色快照
+    char_repo = CharacterRepository(db)
+    # snapshots are stored by chapter_number, we need to query
+    all_snaps = char_repo._fetch_all(
+        "SELECT id, character_id, chapter_title, arc_progress, personality_changes "
+        "FROM character_snapshots WHERE chapter_number = ?",
+        (chapter_number,),
+    )
+    snapshots = [dict(s) for s in (all_snaps or [])]
+
+    # 情节点
+    plot_repo = PlotRepository(db)
+    plot_points = plot_repo.list_points_by_chapter(chapter_number)
+
+    # 伏笔引用
+    fores = plot_repo._fetch_all(
+        "SELECT id, description, status, created_at_chapter, resolved_at_chapter "
+        "FROM foreshadowings WHERE created_at_chapter = ? OR resolved_at_chapter = ?",
+        (chapter_number, chapter_number),
+    )
+    foreshadowings = [dict(f) for f in (fores or [])]
+
+    # 场景数
+    story_repo = StoryRepository(db)
+    ch_id = f"ch_{chapter_number:04d}"
+    scenes = story_repo.list_scenes_by_chapter(ch_id)
+
+    return {
+        "chapter_number": chapter_number,
+        "snapshots": snapshots,
+        "plot_points": plot_points,
+        "foreshadowings": foreshadowings,
+        "scene_count": len(scenes),
+    }
+
+
 def delete_scene_tool(project_name: str, chapter_number: int,
                        scene_index: int) -> dict:
     """删除指定场景"""

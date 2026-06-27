@@ -169,6 +169,10 @@ class CharacterRepository(DatabaseRepository):
     def delete_snapshots_for(self, char_id: str) -> int:
         return self._delete("character_snapshots", "character_id = ?", (char_id,))
 
+    def delete_snapshots_by_chapter(self, chapter_number: int) -> int:
+        """删除指定章节的所有角色快照（用于章节重写时级联清理）"""
+        return self._delete("character_snapshots", "chapter_number = ?", (chapter_number,))
+
     def _deserialize_snapshot(self, row: Optional[dict]) -> Optional[dict]:
         if not row:
             return None

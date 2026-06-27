@@ -439,24 +439,47 @@ class StoryManager:
         """删除指定章节及其所有场景
 
         同时从 FTS 索引中移除场景内容。
+        **级联清理**: 同时删除该章的角色快照、情节点关联、伏笔引用。
         会同步更新内存模型（如果已加载）。
         """
         ch_id = f"ch_{number:04d}"
-        # 先从 FTS 索引移除
+
+        # —— 级联清理：角色快照 ——
+        from ..storage.char_repo import CharacterRepository
+        char_repo = CharacterRepository(self.db)
+        snapshots_deleted = char_repo.delete_snapshots_by_chapter(number)
+
+        # —— 级联清理：情节点 + 伏笔引用 ——
+        from ..storage.plot_repo import PlotRepository
+        plot_repo = PlotRepository(self.db)
+        points_deleted = plot_repo.delete_points_by_chapter(number)
+        fw_reset = plot_repo.reset_foreshadowing_chapter(number)
+
+        # —— 原有清理：FTS + 场景 + 章节 ——
         scenes = self.repo.list_scenes_by_chapter(ch_id)
         for sc in scenes:
             self.repo.remove_scene_from_fts(sc["id"])
-        # 删除场景 + 章节
         self.repo.delete_scenes_by_chapter(ch_id)
         deleted = self.repo.delete_chapter(ch_id)
         if deleted == 0:
             return {"error": f"第{number}章不存在"}
+
         # 更新内存模型
         if self._story:
             self._story.chapters = [
                 ch for ch in self._story.chapters if ch.number != number
             ]
-        return {"deleted": True, "chapter_number": number, "chapter_id": ch_id}
+
+        return {
+            "deleted": True,
+            "chapter_number": number,
+            "chapter_id": ch_id,
+            "cascade_cleanup": {
+                "character_snapshots": snapshots_deleted,
+                "plot_points": points_deleted,
+                "foreshadowing_refs_cleared": fw_reset["cleared_created"] + fw_reset["cleared_resolved"],
+            },
+        }
 
     # ═══ 场景 ═════════════════════════════════════════════════════
 
