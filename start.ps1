@@ -96,7 +96,7 @@ if (-not $env:DEEPSEEK_API_KEY) {
     Write-Host ""
     Write-Host "  Please set your DeepSeek API key:" -ForegroundColor Yellow
     Write-Host "    1. Create a .env file in project root: " -NoNewline
-    Write-Host "d:\DsEdit\WAL\.env" -ForegroundColor White
+    Write-Host (Join-Path $scriptDir ".env") -ForegroundColor White
     Write-Host '    2. Add line: DEEPSEEK_API_KEY=sk-your-key-here' -ForegroundColor White
     Write-Host "    3. Or set environment variable: " -NoNewline
     Write-Host '$env:DEEPSEEK_API_KEY = "sk-..."' -ForegroundColor White
