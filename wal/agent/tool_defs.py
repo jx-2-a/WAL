@@ -334,6 +334,116 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "update_volume",
+            "description": "更新卷信息：标题、摘要、主题、状态(planning/writing/completed)、备注。所有参数可选，只传要更新的字段。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "volume_id": {
+                        "type": "string",
+                        "description": "卷ID（如 vol_001）",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "新的卷标题",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "新的卷摘要",
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "新的卷主题",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["planning", "writing", "completed"],
+                        "description": "新状态",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "备注",
+                    },
+                },
+                "required": ["volume_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_plot_line",
+            "description": "更新剧情线属性：名称、描述、主题、状态(active/completed/abandoned)、计划收束章节。所有参数可选，只传要更新的字段。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plot_id": {
+                        "type": "string",
+                        "description": "剧情线ID（如 plot_001）",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "新的剧情线名称",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "新的描述",
+                    },
+                    "theme": {
+                        "type": "string",
+                        "description": "新的主题",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["active", "completed", "abandoned"],
+                        "description": "新状态",
+                    },
+                    "target_chapter": {
+                        "type": "integer",
+                        "description": "计划收束章节号",
+                    },
+                },
+                "required": ["plot_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_foreshadowing",
+            "description": "更新伏笔属性：描述、紧急度(low/medium/high/critical)、计划回收章节、回收说明。不修改状态和埋设章节（用 resolve_foreshadowing 回收）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fw_id": {
+                        "type": "string",
+                        "description": "伏笔ID（如 fw_001）",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "新的伏笔描述",
+                    },
+                    "urgency": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high", "critical"],
+                        "description": "紧急程度",
+                    },
+                    "target_chapter": {
+                        "type": "integer",
+                        "description": "计划回收章节号",
+                    },
+                    "resolution_notes": {
+                        "type": "string",
+                        "description": "回收说明/备注",
+                    },
+                },
+                "required": ["fw_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_volume_context",
             "description": "获取指定卷的完整写作上下文：卷主题、摘要、章节列表及各自进度、伏笔状态",
             "parameters": {
@@ -1184,8 +1294,11 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         update_chapter_info,
         add_volume_tool,
         delete_volume_tool,
+        update_volume_tool,
         delete_plot_line_tool,
+        update_plot_line_tool,
         delete_character_tool,
+        update_foreshadowing_tool,
         get_chapter_artifacts,
         delete_scene_tool,
     )
@@ -1236,6 +1349,14 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
             arguments["fw_id"],
             arguments["chapter_number"],
             arguments.get("notes", ""),
+        ),
+        "update_foreshadowing": lambda: update_foreshadowing_tool(
+            project_name,
+            arguments["fw_id"],
+            arguments.get("description", ""),
+            arguments.get("urgency", ""),
+            arguments.get("target_chapter", 0),
+            arguments.get("resolution_notes", ""),
         ),
         "check_foreshadowing_health": lambda: check_foreshadowing_health(
             project_name,
@@ -1324,9 +1445,27 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
             project_name,
             arguments["volume_id"],
         ),
+        "update_volume": lambda: update_volume_tool(
+            project_name,
+            arguments["volume_id"],
+            arguments.get("title", ""),
+            arguments.get("summary", ""),
+            arguments.get("theme", ""),
+            arguments.get("status", ""),
+            arguments.get("notes", ""),
+        ),
         "delete_plot_line": lambda: delete_plot_line_tool(
             project_name,
             arguments["plot_id"],
+        ),
+        "update_plot_line": lambda: update_plot_line_tool(
+            project_name,
+            arguments["plot_id"],
+            arguments.get("name", ""),
+            arguments.get("description", ""),
+            arguments.get("theme", ""),
+            arguments.get("status", ""),
+            arguments.get("target_chapter", 0),
         ),
         "delete_character": lambda: delete_character_tool(
             project_name,

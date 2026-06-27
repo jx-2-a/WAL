@@ -160,6 +160,36 @@ class PlotManager:
             del self._plots[plot_id]
         return self.repo.delete_plot_line(plot_id) > 0
 
+    def update_plot_line(self, plot_id: str, **kwargs) -> dict:
+        """更新剧情线属性（name, description, theme, status, target_chapter 等）"""
+        self.load()
+        pl = self._plots.get(plot_id)
+        if not pl:
+            raise ValueError(f"Plot line '{plot_id}' not found")
+        for key, value in kwargs.items():
+            if hasattr(pl, key) and key != "plot_points":
+                setattr(pl, key, value)
+                self.repo.update_plot_field(plot_id, key, value)
+        return {
+            "id": pl.id, "name": pl.name, "plot_type": pl.plot_type.value,
+            "status": pl.status.value if hasattr(pl.status, 'value') else str(pl.status),
+        }
+
+    def update_foreshadowing(self, fw_id: str, **kwargs) -> dict:
+        """更新伏笔属性（description, urgency, target_chapter, related_plot_lines 等）"""
+        from ..models.plot import Foreshadowing
+        fw = self.repo.load_foreshadowing(fw_id)
+        if not fw:
+            raise ValueError(f"Foreshadowing '{fw_id}' not found")
+        changes = []
+        for key, value in kwargs.items():
+            if key in ("id", "story_id", "created_at_chapter", "resolved_at_chapter", "status"):
+                continue  # 受保护字段，通过专门工具修改
+            if key in Foreshadowing.model_fields:
+                self.repo.update_foreshadowing_field(fw_id, key, value)
+                changes.append(key)
+        return {"updated": True, "fw_id": fw_id, "changes": changes}
+
     def get_plot_tree(self) -> list[dict]:
         """获取剧情层级树"""
         self.load()

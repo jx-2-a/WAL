@@ -641,6 +641,80 @@ def delete_character_tool(project_name: str, char_id: str) -> dict:
     return {"error": f"删除角色 {char_id} 失败"}
 
 
+def update_volume_tool(project_name: str, volume_id: str,
+                       title: str = "", summary: str = "",
+                       theme: str = "", status: str = "",
+                       notes: str = "") -> dict:
+    """更新卷信息（标题、摘要、主题、状态等）"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    updates = {}
+    if title:
+        updates["title"] = title
+    if summary:
+        updates["summary"] = summary
+    if theme:
+        updates["theme"] = theme
+    if status:
+        updates["status"] = status
+    if notes:
+        updates["notes"] = notes
+    if not updates:
+        return {"error": "没有提供要更新的字段"}
+    vol = sm.update_volume(volume_id, **updates)
+    return {"updated": True, "volume_id": volume_id, "changes": list(updates.keys())}
+
+
+def update_plot_line_tool(project_name: str, plot_id: str,
+                           name: str = "", description: str = "",
+                           theme: str = "", status: str = "",
+                           target_chapter: int = 0) -> dict:
+    """更新剧情线属性（名称、描述、主题、状态、目标章节等）"""
+    proj = _get_project_path(project_name)
+    pm = PlotManager(proj)
+    pm.load()
+    updates = {}
+    if name:
+        updates["name"] = name
+    if description:
+        updates["description"] = description
+    if theme:
+        updates["theme"] = theme
+    if status:
+        updates["status"] = status
+    if target_chapter:
+        updates["target_chapter"] = target_chapter
+    if not updates:
+        return {"error": "没有提供要更新的字段"}
+    result = pm.update_plot_line(plot_id, **updates)
+    result["updated"] = True
+    return result
+
+
+def update_foreshadowing_tool(project_name: str, fw_id: str,
+                               description: str = "",
+                               urgency: str = "",
+                               target_chapter: int = 0,
+                               resolution_notes: str = "") -> dict:
+    """更新伏笔属性（描述、紧急度、计划回收章节等）"""
+    proj = _get_project_path(project_name)
+    pm = PlotManager(proj)
+    pm.load()
+    updates = {}
+    if description:
+        updates["description"] = description
+    if urgency:
+        updates["urgency"] = urgency
+    if target_chapter:
+        updates["target_chapter"] = target_chapter
+    if resolution_notes:
+        updates["resolution_notes"] = resolution_notes
+    if not updates:
+        return {"error": "没有提供要更新的字段"}
+    return pm.update_foreshadowing(fw_id, **updates)
+
+
 def get_chapter_artifacts(project_name: str, chapter_number: int) -> dict:
     """查看指定章节关联的所有状态数据（重写前检查）
 

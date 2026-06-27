@@ -117,6 +117,13 @@ class StoryRepository(DatabaseRepository):
     def delete_volume(self, volume_id: str) -> int:
         return self._delete("volumes", "id = ?", (volume_id,))
 
+    def update_volume_field(self, volume_id: str, key: str, value) -> None:
+        """更新卷的单个字段"""
+        if isinstance(value, (list, dict)):
+            import json
+            value = json.dumps(value, ensure_ascii=False)
+        self._update("volumes", {key: value}, "id = ?", (volume_id,))
+
     def next_volume_number(self, part_id: str = "") -> int:
         if part_id:
             return self._count("volumes", "story_id = ? AND part_id = ?",

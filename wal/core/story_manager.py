@@ -254,6 +254,24 @@ class StoryManager:
             return None
         return self._row_to_volume(vol_row)
 
+    def update_volume(self, volume_id: str, **kwargs) -> Volume:
+        """更新卷信息（title, summary, theme, status, notes）"""
+        vol = self.get_volume(volume_id)
+        if not vol:
+            raise ValueError(f"Volume '{volume_id}' not found")
+        for key, value in kwargs.items():
+            if hasattr(vol, key):
+                setattr(vol, key, value)
+                self.repo.update_volume_field(volume_id, key, value)
+        # 同步更新内存模型
+        if self._story:
+            for part in self._story.parts:
+                for i, v in enumerate(part.volumes):
+                    if v.id == volume_id:
+                        part.volumes[i] = vol
+                        break
+        return vol
+
     def list_volumes(self, part_id: str = "") -> list[Volume]:
         """列出卷。可按部过滤。包含各卷的章节列表。"""
         # 优先从内存返回
