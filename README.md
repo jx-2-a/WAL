@@ -119,7 +119,8 @@ copy .env.example .env
 ## CLI 管理命令
 
 ```powershell
-$env:PYTHONPATH = "."; $py = "d:\PyVenv\WAL\Scripts\python.exe"
+# 设置 PYTHONPATH；WAL_VENV 在 .env 中配置
+$env:PYTHONPATH = "."; $py = Join-Path $env:WAL_VENV "Scripts\python.exe"
 
 # 项目
 & $py -m wal.cli.main init <名> --author <作者> --summary <简介> --genre <类型>

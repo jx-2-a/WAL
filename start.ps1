@@ -53,22 +53,12 @@ WAL 小说写作 Agent 启动器
     exit 0
 }
 
-# ---- 激活虚拟环境 ----
-$venvRoot = if ($env:WAL_VENV) { $env:WAL_VENV } else { "d:\PyVenv\WAL" }
-$venvActivate = Join-Path $venvRoot "Scripts\Activate.ps1"
-if (Test-Path $venvActivate) {
-    Write-Host "[WAL] Activating virtual environment..." -ForegroundColor Cyan
-    & $venvActivate
-} else {
-    Write-Host "[WAL] WARNING: Virtual environment not found at $venvActivate" -ForegroundColor Yellow
-}
-
-# ---- 设置 Python 路径 ----
+# ---- 基础路径 ----
 $scriptDir = $PSScriptRoot
 $env:PYTHONPATH = $scriptDir
 $env:WAL_PROJECTS = Join-Path $scriptDir "projects"
 
-# ---- 加载 .env 文件 ----
+# ---- 加载 .env 文件（必须在激活 venv 之前，让 WAL_VENV 生效）----
 $envFile = Join-Path $scriptDir ".env"
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {
@@ -82,6 +72,22 @@ if (Test-Path $envFile) {
             }
         }
     }
+}
+
+# ---- 激活虚拟环境 ----
+$venvRoot = if ($env:WAL_VENV) {
+    $env:WAL_VENV
+} elseif (Test-Path (Join-Path $scriptDir ".venv\Scripts\Activate.ps1")) {
+    Join-Path $scriptDir ".venv"
+} else {
+    "d:\PyVenv\WAL"
+}
+$venvActivate = Join-Path $venvRoot "Scripts\Activate.ps1"
+if (Test-Path $venvActivate) {
+    Write-Host "[WAL] Activating virtual environment..." -ForegroundColor Cyan
+    & $venvActivate
+} else {
+    Write-Host "[WAL] WARNING: Virtual environment not found at $venvActivate" -ForegroundColor Yellow
 }
 
 # ---- 检查 API Key ----
