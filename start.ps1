@@ -54,7 +54,8 @@ WAL 小说写作 Agent 启动器
 }
 
 # ---- 激活虚拟环境 ----
-$venvActivate = "d:\PyVenv\WAL\Scripts\Activate.ps1"
+$venvRoot = if ($env:WAL_VENV) { $env:WAL_VENV } else { "d:\PyVenv\WAL" }
+$venvActivate = Join-Path $venvRoot "Scripts\Activate.ps1"
 if (Test-Path $venvActivate) {
     Write-Host "[WAL] Activating virtual environment..." -ForegroundColor Cyan
     & $venvActivate
@@ -145,7 +146,7 @@ if (-not $ProjectName) {
         $summary = Read-Host "  一句话简介 (回车跳过)"
         if (-not $summary) { $summary = "新故事" }
 
-        & d:\PyVenv\WAL\Scripts\python.exe -m wal.cli.main init $ProjectName --author $author --summary $summary --genre $genre
+        & (Join-Path $venvRoot "Scripts\python.exe") -m wal.cli.main init $ProjectName --author $author --summary $summary --genre $genre
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[WAL] Failed to create project." -ForegroundColor Red
             exit 1
@@ -165,7 +166,7 @@ if (-not $ProjectName) {
                 # 如果输入的不是已有项目名，创建新项目
                 if ($choice -notin $projects) {
                     Write-Host "  创建新项目 '$choice'..." -ForegroundColor Yellow
-                    & d:\PyVenv\WAL\Scripts\python.exe -m wal.cli.main init $choice --author "佚名" --summary "新故事" --genre "General"
+                    & (Join-Path $venvRoot "Scripts\python.exe") -m wal.cli.main init $choice --author "佚名" --summary "新故事" --genre "General"
                     if ($LASTEXITCODE -ne 0) {
                         Write-Host "[WAL] Failed to create project." -ForegroundColor Red
                         exit 1
@@ -186,7 +187,7 @@ if (-not $ProjectName) {
                 $ProjectName = $choice
                 if ($choice -notin $projects) {
                     Write-Host "  创建新项目 '$choice'..." -ForegroundColor Yellow
-                    & d:\PyVenv\WAL\Scripts\python.exe -m wal.cli.main init $choice --author "佚名" --summary "新故事" --genre "General"
+                    & (Join-Path $venvRoot "Scripts\python.exe") -m wal.cli.main init $choice --author "佚名" --summary "新故事" --genre "General"
                     if ($LASTEXITCODE -ne 0) {
                         Write-Host "[WAL] Failed to create project." -ForegroundColor Red
                         exit 1
@@ -204,7 +205,7 @@ Write-Host "[WAL] Starting agent for project: $ProjectName" -ForegroundColor Gre
 Write-Host "[WAL] Model: $Model" -ForegroundColor Green
 Write-Host ""
 
-$pythonExe = "d:\PyVenv\WAL\Scripts\python.exe"
+$pythonExe = Join-Path $venvRoot "Scripts\python.exe"
 $launcherScript = Join-Path $scriptDir "wal\agent\launch.py"
 
 $launchArgs = @($launcherScript, $ProjectName, "--model", $Model, "--base-url", $BaseUrl, "--mode", $Mode)
