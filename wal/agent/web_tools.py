@@ -547,13 +547,13 @@ def suggest_alternative_urls(blocked_url: str) -> dict:
             "note": "360百科，反爬相对宽松",
         })
 
-    first = alternatives[0]
     return {
         "query": query,
         "alternatives": alternatives,
         "_next": (
-            f"请立即调用 web_fetch(url=\"{first['url']}\") 抓取「{first['title']}」。"
-            f"如失败再试下一条。"
+            f"请立即依次尝试 web_fetch 抓取以下链接（第1条失败就试第2条，以此类推）：\n"
+            + "\n".join(f"  {i+1}. web_fetch(url=\"{a['url']}\")  -- {a['note']}"
+                       for i, a in enumerate(alternatives))
         ),
     }
 
