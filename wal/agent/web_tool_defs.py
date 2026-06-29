@@ -80,7 +80,7 @@ WEB_TOOL_DEFINITIONS = [
             "description": (
                 "当 web_fetch 抓取被拒（403）时，根据被封的 URL 生成替代链接。"
                 "自动从 URL 提取关键词，生成 Wikipedia 等对抓取友好的替代来源。"
-                "通常在 web_fetch 返回 403 后调用，用返回的链接重试 web_fetch。"
+                "⚠️ 调用后必须立即用 web_fetch 抓取返回的第1条链接，不要只拿链接不抓。"
             ),
             "parameters": {
                 "type": "object",

@@ -502,7 +502,7 @@ def _extract_query_from_url(url: str) -> str | None:
     return None
 
 
-def suggest_alternative_urls(blocked_url: str) -> list[dict]:
+def suggest_alternative_urls(blocked_url: str) -> dict:
     """当 web_fetch 被拒（403）时，根据被封 URL 生成替代链接
 
     从 URL 中提取关键词，生成 Wikipedia 等对抓取友好的替代来源。
@@ -512,14 +512,13 @@ def suggest_alternative_urls(blocked_url: str) -> list[dict]:
         blocked_url: 被拒绝访问的 URL（即 web_fetch 返回 403 的那个链接）
 
     Returns:
-        [{"title": "...", "url": "...", "note": "..."}, ...]
-        其中 url 可直接传给 web_fetch 抓取
+        {"alternatives": [...], "_next": "请立即...web_fetch(...)..."}
     """
     from urllib.parse import quote, urlparse
 
     query = _extract_query_from_url(blocked_url)
     if not query:
-        return []
+        return {"alternatives": [], "_next": "无法从 URL 提取关键词，请用 web_search 搜索同一主题"}
 
     alternatives: list[dict] = []
     parsed = urlparse(blocked_url)
@@ -548,7 +547,15 @@ def suggest_alternative_urls(blocked_url: str) -> list[dict]:
             "note": "360百科，反爬相对宽松",
         })
 
-    return alternatives
+    first = alternatives[0]
+    return {
+        "query": query,
+        "alternatives": alternatives,
+        "_next": (
+            f"请立即调用 web_fetch(url=\"{first['url']}\") 抓取「{first['title']}」。"
+            f"如失败再试下一条。"
+        ),
+    }
 
 
 def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
