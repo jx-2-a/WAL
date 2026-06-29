@@ -455,6 +455,55 @@ def _extract_content_fallback(html_text: str) -> str:
     return '\n'.join(lines)
 
 
+def _extract_query_from_url(url: str) -> str | None:
+    """从 URL 中提取搜索关键词，用于 403 降级时自动搜索替代来源
+
+    支持的 URL 模式：
+      - baike.baidu.com/item/韩立/2508547  → "韩立"
+      - zh.wikipedia.org/wiki/韩立          → "韩立"
+      - zhihu.com/question/12345            → None（路径无意义）
+      - 通用路径包含中文                      → 提取中文部分
+
+    Returns:
+        提取的关键词，如果无法提取则返回 None
+    """
+    from urllib.parse import urlparse, unquote
+
+    try:
+        parsed = urlparse(url)
+        path = unquote(parsed.path).strip("/")
+
+        # 百度百科: /item/关键词/数字ID
+        if "baike.baidu.com" in parsed.netloc:
+            m = re.search(r'^item/([^/]+)', path)
+            if m:
+                return m.group(1)
+
+        # Wikipedia: /wiki/关键词
+        if "wikipedia.org" in parsed.netloc:
+            m = re.search(r'^wiki/([^/]+)', path)
+            if m:
+                return m.group(1).replace("_", " ")
+
+        # 通用：提取路径中的中文片段（最有可能是标题/关键词）
+        cjk_chunks = re.findall(r'[一-鿿㐀-䶿]{2,}', path)
+        if cjk_chunks:
+            # 取最长的中文片段作为关键词
+            return max(cjk_chunks, key=len)
+
+        # 通用：最后一段路径作为关键词（英文字段）
+        segments = [s for s in path.split("/") if s and len(s) > 2]
+        if segments:
+            candidate = segments[-1].replace("-", " ").replace("_", " ")
+            if len(candidate) >= 3:
+                return candidate
+
+    except Exception:
+        pass
+
+    return None
+
+
 def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
     """抓取指定 URL 的页面正文内容
 
@@ -493,17 +542,44 @@ def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
         sc = e.response.status_code
         logger.warning(f"Fetch HTTP {sc}: {url}")
         if sc == 403:
-            return {
-                "error": f"抓取失败：HTTP 403（网站拒绝访问）",
+            # 尝试从 URL 提取关键词，自动搜索替代来源
+            alt_results = None
+            query = _extract_query_from_url(url)
+            if query:
+                logger.info(f"403 fallback: searching Bing for '{query}'")
+                try:
+                    sr = _search_bing(query, num_results=8)
+                    if "results" in sr and sr["results"]:
+                        # 过滤：排除原 URL 和已知反爬严格的域名
+                        _blocked_domains = {
+                            "baike.baidu.com", "zhihu.com", "zhidao.baidu.com",
+                            "baidu.com", "bing.com", "microsoft.com",
+                        }
+                        alt_results = [
+                            r for r in sr["results"]
+                            if r["url"] != url
+                            and not any(d in r["url"] for d in _blocked_domains)
+                        ][:5]
+                except Exception:
+                    pass
+
+            response = {
+                "error": "抓取失败：HTTP 403（网站拒绝访问）",
                 "url": url,
                 "hint": (
-                    "该网站（如百度百科、知乎等）有严格的反爬机制，"
-                    "请尝试以下替代方案：\n"
-                    "1. 用 web_search 搜索同一主题，选择其他来源\n"
-                    "2. 尝试 .gov / .edu / Wikipedia 等对自动化访问更友好的站点\n"
-                    "3. 如果是百度百科，可尝试 baike.baidu.com/item/关键词 格式"
+                    "该网站（如百度百科、知乎等）有严格的反爬机制。"
+                    "已自动搜索替代来源，见 alternative_results。"
+                    "建议优先选择 Wikipedia、.gov、.edu 等对自动化访问友好的站点。"
                 ),
             }
+            if alt_results:
+                response["alternative_results"] = alt_results
+                response["alternative_query"] = query
+            elif query:
+                response["alternative_query"] = query
+                response["alternative_results"] = []
+                response["hint"] += " 未找到合适的替代来源，请尝试用 web_search 换一组关键词搜索。"
+            return response
         if sc == 429:
             return {
                 "error": f"抓取失败：HTTP 429（请求过于频繁）",
