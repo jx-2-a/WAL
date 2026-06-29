@@ -16,6 +16,45 @@ from loguru import logger
 
 
 # ============================================================
+#  通用浏览器请求头（模拟 Chrome 125，降低被反爬拦截的概率）
+# ============================================================
+
+_BASE_HEADERS: dict[str, str] = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8,"
+        "application/signed-exchange;v=b3;q=0.7"
+    ),
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Cache-Control": "max-age=0",
+    "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not/A.Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "DNT": "1",
+}
+
+_FETCH_HEADERS: dict[str, str] = {
+    **_BASE_HEADERS,
+    "Sec-Fetch-Site": "cross-site",  # web_fetch 跨站导航
+}
+
+_SEARCH_HEADERS: dict[str, str] = {
+    **_BASE_HEADERS,
+    "Sec-Fetch-Site": "same-origin",  # web_search 始终访问同一站点
+}
+
+
+# ============================================================
 #  DuckDuckGo Lite 搜索（默认后端，零配置）
 # ============================================================
 
@@ -35,15 +74,7 @@ def _search_duckduckgo(query: str, num_results: int = 5) -> dict:
             resp = client.post(
                 "https://lite.duckduckgo.com/lite/",
                 data=params,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/125.0.0.0 Safari/537.36"
-                    ),
-                    "Accept": "text/html,application/xhtml+xml",
-                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                },
+                headers=_SEARCH_HEADERS,
             )
             resp.raise_for_status()
             html_text = resp.text
@@ -275,22 +306,33 @@ def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
         ) as client:
             resp = client.get(
                 url,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/125.0.0.0 Safari/537.36"
-                    ),
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                },
+                headers=_FETCH_HEADERS,
             )
             resp.raise_for_status()
             html_text = resp.text
 
     except httpx.HTTPStatusError as e:
-        logger.warning(f"Fetch HTTP {e.response.status_code}: {url}")
-        return {"error": f"抓取失败：HTTP {e.response.status_code}", "url": url}
+        sc = e.response.status_code
+        logger.warning(f"Fetch HTTP {sc}: {url}")
+        if sc == 403:
+            return {
+                "error": f"抓取失败：HTTP 403（网站拒绝访问）",
+                "url": url,
+                "hint": (
+                    "该网站（如百度百科、知乎等）有严格的反爬机制，"
+                    "请尝试以下替代方案：\n"
+                    "1. 用 web_search 搜索同一主题，选择其他来源\n"
+                    "2. 尝试 .gov / .edu / Wikipedia 等对自动化访问更友好的站点\n"
+                    "3. 如果是百度百科，可尝试 baike.baidu.com/item/关键词 格式"
+                ),
+            }
+        if sc == 429:
+            return {
+                "error": f"抓取失败：HTTP 429（请求过于频繁）",
+                "url": url,
+                "hint": "请等待几秒后重试",
+            }
+        return {"error": f"抓取失败：HTTP {sc}", "url": url}
     except httpx.TimeoutException:
         logger.warning(f"Fetch timeout: {url}")
         return {"error": "抓取超时", "url": url, "hint": "页面加载时间过长，请稍后重试"}
