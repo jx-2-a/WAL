@@ -8,6 +8,7 @@
 """
 
 import json
+import os
 import re
 import html as html_mod
 
@@ -197,27 +198,204 @@ def _parse_ddg_lite_html(html_text: str, num_results: int) -> list[dict]:
 
 
 # ============================================================
-#  web_search — 对外统一接口
+#  Bing 搜索（默认后端，cn.bing.com 国内直连）
 # ============================================================
+
+def _search_bing(query: str, num_results: int = 5) -> dict:
+    """使用 Bing 搜索（cn.bing.com，国内无需 VPN）
+
+    抓取 Bing 搜索结果页的 HTML，解析出标题+URL+摘要。
+    """
+    params = {
+        "q": query,
+        "setlang": "zh-cn",
+        "count": str(min(num_results + 3, 15)),
+    }
+
+    try:
+        with httpx.Client(timeout=httpx.Timeout(15.0), follow_redirects=True) as client:
+            resp = client.get(
+                "https://cn.bing.com/search",
+                params=params,
+                headers=_SEARCH_HEADERS,
+            )
+            resp.raise_for_status()
+            html_text = resp.text
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"Bing HTTP {e.response.status_code}")
+        if e.response.status_code == 403:
+            return {
+                "error": "Bing 返回 HTTP 403（访问被拒）",
+                "hint": "Bing 暂时限制了请求，请稍后重试或设置 SEARCH_BACKEND=duckduckgo",
+            }
+        return {
+            "error": f"Bing 返回 HTTP {e.response.status_code}",
+            "hint": "请稍后重试",
+        }
+    except httpx.TimeoutException:
+        logger.warning("Bing timeout")
+        return {
+            "error": "Bing 请求超时",
+            "hint": "网络连接过慢，请稍后重试",
+        }
+    except Exception as e:
+        logger.warning(f"Bing error: {e}")
+        return {
+            "error": f"Bing 搜索失败：{e}",
+            "hint": "请检查网络连接，或设置 SEARCH_BACKEND=duckduckgo",
+        }
+
+    results = _parse_bing_html(html_text, num_results)
+
+    if not results:
+        return {
+            "query": query,
+            "backend": "bing",
+            "results": [],
+            "hint": "未找到结果，请尝试修改搜索词",
+        }
+
+    return {
+        "query": query,
+        "backend": "bing",
+        "results": results,
+    }
+
+
+def _parse_bing_html(html_text: str, num_results: int) -> list[dict]:
+    """解析 Bing 搜索结果页 HTML
+
+    Bing 结构（2024）：
+      <li class="b_algo">
+        <h2><a href="URL">Title</a></h2>
+        <div class="b_caption">
+          <p>snippet text</p>
+        </div>
+      </li>
+
+    部分结果可能省略 snippet 或有额外标记，解析会做降级处理。
+    """
+    results = []
+
+    # 按 <li class="b_algo"> 切分结果块
+    algo_blocks = re.split(
+        r'<(?:li|div)\s[^>]*?\bclass\s*=\s*[\'\"]b_algo[\'\"][^>]*?>',
+        html_text, flags=re.IGNORECASE
+    )
+
+    for block in algo_blocks[1:]:  # 第一个分段是 b_algo 之前的内容，跳过
+        if len(results) >= num_results:
+            break
+
+        # 提取标题链接：<h2> 内的第一个 <a href="...">...</a>
+        title = ""
+        url = ""
+        h2_match = re.search(
+            r'<h2[^>]*>(.*?)</h2>', block, re.DOTALL | re.IGNORECASE
+        )
+        if h2_match:
+            h2_content = h2_match.group(1)
+            a_match = re.search(
+                r'<a\s[^>]*?\bhref\s*=\s*[\'\"](https?://[^\'\"]+)[\'\"][^>]*?>(.*?)</a>',
+                h2_content, re.DOTALL | re.IGNORECASE
+            )
+            if a_match:
+                url = html_mod.unescape(a_match.group(1).strip())
+                title = html_mod.unescape(re.sub(r'<[^>]+>', '', a_match.group(2)).strip())
+                title = re.sub(r'\s+', ' ', title).strip()
+
+        # 跳过无效结果
+        if not url or not url.startswith('http') or len(title) < 3:
+            continue
+        if any(skip in url.lower() for skip in ['bing.com', 'microsoft.com/bing']):
+            continue
+
+        # 提取摘要：<div class="b_caption"> 内的 <p> 或纯文本
+        snippet = ""
+        caption_match = re.search(
+            r'<div[^>]*?\bclass\s*=\s*[\'\"]b_caption[\'\"][^>]*?>(.*?)</div>',
+            block, re.DOTALL | re.IGNORECASE
+        )
+        if caption_match:
+            caption = caption_match.group(1)
+            # 优先取 <p> 标签内容
+            p_match = re.search(r'<p[^>]*>(.*?)</p>', caption, re.DOTALL | re.IGNORECASE)
+            if p_match:
+                snippet = p_match.group(1)
+            else:
+                snippet = caption
+            snippet = re.sub(r'<[^>]+>', '', snippet).strip()
+            snippet = html_mod.unescape(snippet)
+            snippet = re.sub(r'\s+', ' ', snippet)
+
+        # 降级：找不到 b_caption 时在 h2 后面找任何文本
+        if not snippet and h2_match:
+            after_h2 = block[h2_match.end():h2_match.end() + 1500]
+            text = re.sub(r'<[^>]+>', ' ', after_h2)
+            text = html_mod.unescape(text)
+            text = re.sub(r'\s+', ' ', text).strip()
+            if len(text) > 30:
+                snippet = text[:300]
+
+        results.append({
+            "title": title,
+            "url": url,
+            "snippet": snippet[:300] if snippet else "",
+        })
+
+    return results
+
+
+# ============================================================
+#  web_search — 对外统一接口（多后端调度）
+# ============================================================
+
+def _get_search_backend() -> str:
+    """读取 SEARCH_BACKEND 环境变量，返回后端标识
+
+    - "bing": Bing 搜索（默认，cn.bing.com 国内直连，全球可用）
+    - "duckduckgo": DuckDuckGo Lite（需 VPN，适合海外环境）
+    - "auto": 自动选择（先 Bing 后 DDG，暂未实现，退化为 bing）
+    """
+    backend = os.getenv("SEARCH_BACKEND", "bing").strip().lower()
+    if backend not in ("bing", "duckduckgo", "auto"):
+        logger.warning(f"Unknown SEARCH_BACKEND={backend}, falling back to bing")
+        backend = "bing"
+    return backend
+
 
 def web_search(query: str, project_name: str = "",
                num_results: int = 5, language: str = "zh-CN") -> dict:
     """搜索互联网，返回标题+URL+摘要
 
-    使用 DuckDuckGo Lite，零配置，直接可用。
+    后端选择（环境变量 SEARCH_BACKEND）：
+      - bing（默认）：cn.bing.com，国内直连，无需 VPN
+      - duckduckgo：DuckDuckGo Lite，海外可用
+      - auto：自动选择（暂退化为 bing）
 
     Args:
         query: 搜索关键词。建议具体、描述性。
         project_name: 项目名称（用于日志）
         num_results: 返回结果数量（默认5，最大10）
-        language: 语言偏好（保留参数，DDG Lite 通过 kl=cn-zh 固定中文）
+        language: 语言偏好（Bing 通过 setlang=zh-cn；DDG 通过 kl=cn-zh）
 
     Returns:
-        {"query": "...", "backend": "duckduckgo_lite", "results": [...]}
+        {"query": "...", "backend": "bing|duckduckgo_lite", "results": [...]}
         或 {"error": "...", "hint": "..."}
     """
     num_results = min(max(num_results, 1), 10)
-    return _search_duckduckgo(query, num_results)
+    backend = _get_search_backend()
+
+    if backend == "duckduckgo":
+        return _search_duckduckgo(query, num_results)
+    else:
+        # bing / auto → Bing first
+        result = _search_bing(query, num_results)
+        # 如果 Bing 失败且设置了 duckduckgo 或 auto，可尝试 DDG 降级
+        if "error" in result and backend == "auto":
+            logger.info("Bing failed, falling back to DuckDuckGo")
+            return _search_duckduckgo(query, num_results)
+        return result
 
 
 # ============================================================

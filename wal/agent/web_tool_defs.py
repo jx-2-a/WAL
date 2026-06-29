@@ -1,11 +1,12 @@
 """联网搜索工具定义 — OpenAI Function Calling 格式的 schema + dispatch
 
 提供两个工具：
-  - web_search: 搜索互联网获取参考资料摘要（默认 DuckDuckGo Lite，可选 SearXNG）
+  - web_search: 搜索互联网获取参考资料摘要（默认 Bing，可选 DuckDuckGo Lite / SearXNG）
   - web_fetch: 抓取指定 URL 的页面正文（基于 trafilatura）
 
-DuckDuckGo Lite 为零配置默认后端，无需 API Key 或 Docker。
-设置 SEARXNG_INSTANCE 环境变量后自动切换为 SearXNG 聚合搜索（Google/Bing/DDG 等）。
+Bing (cn.bing.com) 为默认后端，国内直连无需 VPN。
+设置 SEARCH_BACKEND=duckduckgo 可切换为 DuckDuckGo Lite（海外环境）。
+设置 SEARXNG_INSTANCE 环境变量后可使用 SearXNG 聚合搜索。
 """
 
 import json
@@ -24,7 +25,7 @@ WEB_TOOL_DEFINITIONS = [
                 "搜索互联网获取参考资料。用于研究世界观设定（历史、地理、科技、文化等）、"
                 "查证事实、寻找写作灵感。返回标题+URL+摘要，不包含完整页面内容。"
                 "如需深入阅读某条结果，请用 web_fetch 抓取完整内容。"
-                "基于 DuckDuckGo Lite，完全免费，零配置。"
+                "基于 Bing (cn.bing.com)，国内直连，免费零配置。"
             ),
             "parameters": {
                 "type": "object",
