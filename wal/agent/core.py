@@ -568,7 +568,7 @@ class AgentLoop:
             if tool_name == "switch_mode":
                 result = self._execute_switch_mode(args)
             # 联网搜索工具：跨模式可用（Planning + Writing）
-            elif tool_name in ("web_search", "web_fetch"):
+            elif tool_name in ("web_search", "web_fetch", "suggest_alternative_urls"):
                 result = execute_web_tool(tool_name, args, self.project_name)
             # 根据模式选择工具执行器
             elif self.mode == AgentMode.PLANNING:

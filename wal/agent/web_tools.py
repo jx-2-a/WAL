@@ -502,13 +502,24 @@ def _extract_query_from_url(url: str) -> str | None:
     return None
 
 
-def _suggest_alternative_urls(blocked_url: str, query: str) -> list[dict]:
-    """根据被封 URL 和提取的关键词，生成替换链接列表
+def suggest_alternative_urls(blocked_url: str) -> list[dict]:
+    """当 web_fetch 被拒（403）时，根据被封 URL 生成替代链接
 
-    优先级：Wikipedia（zh + en）→ 其他友好来源。
-    返回格式与 web_search results 一致，可直接传给 web_fetch。
+    从 URL 中提取关键词，生成 Wikipedia 等对抓取友好的替代来源。
+    通常在 web_fetch 返回 403 后调用，用返回的链接重试 web_fetch。
+
+    Args:
+        blocked_url: 被拒绝访问的 URL（即 web_fetch 返回 403 的那个链接）
+
+    Returns:
+        [{"title": "...", "url": "...", "note": "..."}, ...]
+        其中 url 可直接传给 web_fetch 抓取
     """
     from urllib.parse import quote, urlparse
+
+    query = _extract_query_from_url(blocked_url)
+    if not query:
+        return []
 
     alternatives: list[dict] = []
     parsed = urlparse(blocked_url)
@@ -529,9 +540,8 @@ def _suggest_alternative_urls(blocked_url: str, query: str) -> list[dict]:
         "note": "英文维基，内容可能更详细",
     })
 
-    # 百度百科 → 另外两种百科
+    # 百度百科 → 360百科
     if "baike.baidu.com" in parsed.netloc:
-        # 互动百科（如果还在）
         alternatives.append({
             "title": f"{query} - 360百科",
             "url": f"https://baike.so.com/doc/search?q={quote(query)}",
@@ -584,21 +594,18 @@ def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
                 "该网站（如百度百科、知乎等）有严格的反爬机制，请尝试以下替代方案：",
             ]
             if query:
-                hint_lines.append(f"1. 优先尝试 alternative_urls 中的替换链接（Wikipedia 等友好站点）")
-                hint_lines.append(f"2. 或用 web_search(query=\"{query}\") 搜索，选择其他来源")
-                hint_lines.append("3. 检查之前搜索返回的其他结果中是否有可替代链接")
+                hint_lines.append(f"1. 调用 suggest_alternative_urls(blocked_url=\"{url}\") 获取替代链接，然后用 web_fetch 抓取")
+                hint_lines.append(f"2. 或用 web_search(query=\"{query}\") 搜索同一主题，选其他来源")
             else:
-                hint_lines.append("1. 尝试 Wikipedia、.gov、.edu 等对自动化访问更友好的站点")
-                hint_lines.append("2. 用 web_search 搜索同一主题，选择其他来源")
-                hint_lines.append("3. 如果之前搜索过，检查其他搜索结果中有无可替代的链接")
-            hint_lines.append("4. 实在不行就跳过本条，继续写作——参考信息不是必需的")
+                hint_lines.append("1. 调用 suggest_alternative_urls(blocked_url=\"<原URL>\") 获取替代链接重试")
+                hint_lines.append("2. 或用 web_search 搜索同一主题，选其他来源")
+            hint_lines.append("3. 实在不行就跳过本条，继续写作——参考信息不是必需的")
 
             return {
                 "error": "抓取失败：HTTP 403（网站拒绝访问）",
                 "url": url,
                 "hint": "\n".join(hint_lines),
                 "suggested_search": query or None,
-                "alternative_urls": _suggest_alternative_urls(url, query) if query else [],
             }
         if sc == 429:
             return {
