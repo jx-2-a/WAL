@@ -455,6 +455,53 @@ def _extract_content_fallback(html_text: str) -> str:
     return '\n'.join(lines)
 
 
+def _extract_query_from_url(url: str) -> str | None:
+    """从 URL 中提取搜索关键词，用于 403 提示 agent 搜索替代来源
+
+    支持的 URL 模式：
+      - baike.baidu.com/item/韩立/2508547  → "韩立"
+      - zh.wikipedia.org/wiki/韩立          → "韩立"
+      - 通用路径包含中文                      → 提取中文部分
+
+    Returns:
+        提取的关键词，如果无法提取则返回 None
+    """
+    from urllib.parse import urlparse, unquote
+
+    try:
+        parsed = urlparse(url)
+        path = unquote(parsed.path).strip("/")
+
+        # 百度百科: /item/关键词/数字ID
+        if "baike.baidu.com" in parsed.netloc:
+            m = re.search(r'^item/([^/]+)', path)
+            if m:
+                return m.group(1)
+
+        # Wikipedia: /wiki/关键词
+        if "wikipedia.org" in parsed.netloc:
+            m = re.search(r'^wiki/([^/]+)', path)
+            if m:
+                return m.group(1).replace("_", " ")
+
+        # 通用：提取路径中的中文片段（最有可能是标题/关键词）
+        cjk_chunks = re.findall(r'[一-鿿㐀-䶿]{2,}', path)
+        if cjk_chunks:
+            return max(cjk_chunks, key=len)
+
+        # 通用：最后一段路径作为关键词（英文字段）
+        segments = [s for s in path.split("/") if s and len(s) > 2]
+        if segments:
+            candidate = segments[-1].replace("-", " ").replace("_", " ")
+            if len(candidate) >= 3:
+                return candidate
+
+    except Exception:
+        pass
+
+    return None
+
+
 def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
     """抓取指定 URL 的页面正文内容
 
@@ -493,16 +540,24 @@ def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
         sc = e.response.status_code
         logger.warning(f"Fetch HTTP {sc}: {url}")
         if sc == 403:
+            query = _extract_query_from_url(url)
+            hint_lines = [
+                "该网站（如百度百科、知乎等）有严格的反爬机制，请尝试以下替代方案：",
+            ]
+            if query:
+                hint_lines.append(f"1. 用 web_search(query=\"{query}\") 搜索同一主题，选择其他来源（如 Wikipedia、.gov、.edu 等友好站点）")
+                hint_lines.append("2. 检查之前 web_search 返回的其他结果中有无可替代的链接")
+            else:
+                hint_lines.append("1. 用 web_search 搜索同一主题，选择其他来源")
+                hint_lines.append("2. 尝试 Wikipedia、.gov、.edu 等对自动化访问更友好的站点")
+                hint_lines.append("3. 如果之前搜索过，检查其他搜索结果中有无可替代的链接")
+            hint_lines.append("3. 实在不行就跳过本条，继续写作——参考信息不是必需的")
+
             return {
                 "error": "抓取失败：HTTP 403（网站拒绝访问）",
                 "url": url,
-                "hint": (
-                    "该网站（如百度百科、知乎等）有严格的反爬机制，"
-                    "请尝试以下替代方案：\n"
-                    "1. 用 web_search 搜索同一主题，选择其他来源\n"
-                    "2. 尝试 Wikipedia、.gov、.edu 等对自动化访问更友好的站点\n"
-                    "3. 如果之前搜索过，检查其他搜索结果中有无可替代的链接"
-                ),
+                "hint": "\n".join(hint_lines),
+                "suggested_search": query or None,
             }
         if sc == 429:
             return {
