@@ -19,6 +19,9 @@ PyYAML>=6.0
 # === 模板引擎 (提示词构建) ===
 Jinja2>=3.0
 
+# === 网页正文提取（web_fetch 工具） ===
+trafilatura>=2.0
+
 # === 文档导出 ===
 python-docx>=1.0
 
