@@ -80,4 +80,5 @@ class Story(BaseModel):
     chapters: list[Chapter] = Field(default_factory=list, description="章节列表（向后兼容，优先使用 parts→volumes→chapters）")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
     updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
+    style: str = Field(default="", description="写作风格指令")
     notes: str = Field(default="", description="全局备注")

@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS stories (
     status TEXT NOT NULL DEFAULT 'planning',
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT '',
-    notes TEXT NOT NULL DEFAULT ''
+    notes TEXT NOT NULL DEFAULT '',
+    style TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS parts (
@@ -426,6 +427,8 @@ class Database:
         with self.get_conn() as conn:
             conn.executescript(SCHEMA_DDL)
             conn.executescript(DEFAULT_CONFIG_DDL)
+            # 增量迁移：为新版本添加缺失的列
+            self._migrate_columns(conn)
 
     def schema_exists(self) -> bool:
         """检查数据库是否已初始化"""
@@ -439,6 +442,15 @@ class Database:
                 return cur.fetchone() is not None
         except Exception:
             return False
+
+    @staticmethod
+    def _migrate_columns(conn: sqlite3.Connection) -> None:
+        """增量迁移：为旧版本数据库添加缺失的列"""
+        # 检查 stories 表是否有 style 列
+        cur = conn.execute("PRAGMA table_info(stories)")
+        columns = {row[1] for row in cur.fetchall()}
+        if "style" not in columns:
+            conn.execute("ALTER TABLE stories ADD COLUMN style TEXT NOT NULL DEFAULT ''")
 
     # ── YAML 迁移 ──────────────────────────────────────────────────
 
@@ -522,8 +534,8 @@ class Database:
         story_id = "main"
         with self.get_conn() as conn:
             conn.execute(
-                """INSERT OR REPLACE INTO stories (id, name, author, summary, genre, tags, status, created_at, updated_at, notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT OR REPLACE INTO stories (id, name, author, summary, genre, tags, status, created_at, updated_at, notes, style)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     story_id,
                     data.get("name", ""),
@@ -535,6 +547,7 @@ class Database:
                     data.get("created_at", ""),
                     data.get("updated_at", ""),
                     data.get("notes", ""),
+                    data.get("style", ""),
                 ),
             )
 

@@ -1094,6 +1094,27 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "description": "全局备注",
                     },
+                    "style": {
+                        "type": "string",
+                        "description": "写作风格指令，如「文风简洁有力，多用短句」「轻松幽默」「严肃沉重」。设定后 AI 将遵循此风格写作",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_writing_style",
+            "description": "设置或查看写作风格。传入 style 参数时更新写作风格；不传参数时返回当前写作风格。设定后 AI 在所有模式下的写作都会遵循此风格指令。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "style": {
+                        "type": "string",
+                        "description": "写作风格指令，如「文风简洁有力，多用短句」「轻松幽默的日常文风」「严肃沉重，多用长句刻画心理」。留空则仅查看当前风格。",
+                    },
                 },
                 "required": [],
             },
@@ -1491,6 +1512,7 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         # 新增工具：剧情线、故事信息、角色关系、自定义文档
         "add_plot_line": lambda: _add_plot_line(project_name, arguments),
         "update_story_info": lambda: _update_story_info(project_name, arguments),
+        "set_writing_style": lambda: _set_writing_style(project_name, arguments),
         "add_character_relationship": lambda: _add_character_relationship(project_name, arguments),
         "add_custom_document": lambda: _add_custom_document(project_name, arguments),
         "get_custom_document": lambda: _get_custom_document(project_name, arguments),
@@ -1651,7 +1673,7 @@ def _update_story_info(project_name: str, args: dict) -> dict:
     sm.load_story()
 
     updates = {}
-    for key in ("name", "author", "summary", "genre", "notes"):
+    for key in ("name", "author", "summary", "genre", "notes", "style"):
         val = args.get(key, "")
         if val:
             updates[key] = val
@@ -1683,9 +1705,39 @@ def _update_story_info(project_name: str, args: dict) -> dict:
         "author": story.author,
         "summary": story.summary,
         "genre": story.genre,
+        "style": story.style,
         "tags": story.tags,
         "status": story.status.value if hasattr(story.status, 'value') else str(story.status),
     }
+
+
+def _set_writing_style(project_name: str, args: dict) -> dict:
+    """内部：设置或查看写作风格"""
+    import os
+    from pathlib import Path
+    from wal.core import StoryManager
+
+    proj_path = str(Path(os.environ.get("WAL_PROJECTS", "projects")) / project_name)
+    sm = StoryManager(proj_path)
+    sm.load_story()
+
+    style = args.get("style", "").strip() if args.get("style") else ""
+
+    if style:
+        # 设置模式
+        sm.update_story(style=style)
+        return {"action": "set", "style": style,
+                "message": f"写作风格已更新为：{style}"}
+    else:
+        # 读取模式
+        story = sm.get_story()
+        current = story.style if story and story.style else ""
+        if current:
+            return {"action": "get", "style": current,
+                    "message": f"当前写作风格：{current}"}
+        else:
+            return {"action": "get", "style": "",
+                    "message": "尚未设定写作风格。你可以用 set_writing_style 设定，如：文风简洁有力，多用短句"}
 
 
 def _add_character_relationship(project_name: str, args: dict) -> dict:

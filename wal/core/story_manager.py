@@ -24,12 +24,15 @@ class StoryManager:
         self.db = Database(str(db_path))
         self.repo = StoryRepository(self.db)
 
-        # 自动初始化架构 + 迁移
+        # 自动初始化架构 + 迁移（init_schema 幂等，可安全重复调用）
         if not self.db.schema_exists():
             self.db.init_schema()
             # 尝试从 YAML 自动迁移
             if (self.project_dir / "story.yaml").exists():
                 self.db.migrate_from_yaml(str(self.project_dir))
+        else:
+            # 已有数据库：仍然调用 init_schema 以运行增量迁移
+            self.db.init_schema()
 
         self._story: Optional[Story] = None
 
@@ -588,6 +591,7 @@ class StoryManager:
             return {
                 "name": story_data.get("name", ""),
                 "status": story_data.get("status", "planning"),
+                "style": story_data.get("style", ""),
                 "total_chapters": 0, "done_chapters": 0,
                 "progress_percent": 0.0, "total_words": 0,
                 "parts": part_count, "volumes": vol_count,
@@ -596,6 +600,7 @@ class StoryManager:
         return {
             "name": story_data.get("name", ""),
             "status": story_data.get("status", "planning"),
+            "style": story_data.get("style", ""),
             "total_chapters": stats["total_chapters"],
             "done_chapters": stats["done_chapters"],
             "progress_percent": stats["progress_percent"],

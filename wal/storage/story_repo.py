@@ -31,6 +31,7 @@ class StoryRepository(DatabaseRepository):
             "created_at": story_data.get("created_at", ""),
             "updated_at": story_data.get("updated_at", datetime.now().isoformat()),
             "notes": story_data.get("notes", ""),
+            "style": story_data.get("style", ""),
         }
         self._insert_or_replace("stories", data)
 
