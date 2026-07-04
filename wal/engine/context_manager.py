@@ -76,15 +76,16 @@ class TokenCounter:
 # 工具结果截断
 # ═══════════════════════════════════════════════════════════════
 
-def truncate_tool_result(result: str, max_chars: int = 2000,
+def truncate_tool_result(result: str, max_chars: int = 12000,
                          max_list_items: int = 20,
-                         scene_content_max: int = 500) -> str:
+                         scene_content_max: int = 10000) -> str:
     """智能截断工具返回结果，防止撑爆上下文
 
     策略：
-      - 纯文本：保留前 1500 字符 + 尾部摘要
+      - 纯文本：保留前 8000 字符 + 尾部摘要
       - 列表（JSON 数组）：保留前 20 条 + 总数说明
-      - 场景正文（超长 content 字段）：仅保留前 500 字符 + 统计
+      - 场景正文（超长 content 字段）：保留前 10000 字符 + 统计
+      - web_fetch 等工具返回的完整内容不会被二次截断
 
     返回截断后的字符串。
     """
@@ -101,8 +102,8 @@ def truncate_tool_result(result: str, max_chars: int = 2000,
         pass
 
     # 纯文本截断
-    head = result[:1500]
-    tail = result[-300:] if len(result) > 1800 else ""
+    head = result[:8000]
+    tail = result[-500:] if len(result) > 8500 else ""
     return (
         f"{head}\n\n... (内容过长，已截断。完整长度：{len(result)} 字符) ...\n\n"
         + (f"... (尾部) ...\n{tail}" if tail else "")

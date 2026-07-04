@@ -364,6 +364,20 @@ def _get_search_backend() -> str:
     return backend
 
 
+def _tag_preferred_sources(results: list[dict]) -> list[dict]:
+    """标记优先抓取来源（Wikipedia 等对自动化友好的站点）
+
+    在结果的 note 字段中添加提示，引导 AI 优先选择这些链接。
+    """
+    for r in results:
+        url = r.get("url", "").lower()
+        if "wikipedia.org" in url:
+            r["note"] = "⭐ 优先抓取：Wikipedia 对自动化访问友好，内容详实"
+        elif "zhihu.com" in url or "baidu.com" in url:
+            r["note"] = "⚠️ 可能反爬：该站点可能拒绝自动化访问（403）"
+    return results
+
+
 def web_search(query: str, project_name: str = "",
                num_results: int = 5, language: str = "zh-CN") -> dict:
     """搜索互联网，返回标题+URL+摘要
@@ -387,7 +401,7 @@ def web_search(query: str, project_name: str = "",
     backend = _get_search_backend()
 
     if backend == "duckduckgo":
-        return _search_duckduckgo(query, num_results)
+        result = _search_duckduckgo(query, num_results)
     else:
         # bing / auto → Bing first
         result = _search_bing(query, num_results)
@@ -395,7 +409,12 @@ def web_search(query: str, project_name: str = "",
         if "error" in result and backend == "auto":
             logger.info("Bing failed, falling back to DuckDuckGo")
             return _search_duckduckgo(query, num_results)
-        return result
+
+    # 标记优先抓取来源
+    if "results" in result:
+        result["results"] = _tag_preferred_sources(result["results"])
+
+    return result
 
 
 # ============================================================
@@ -558,21 +577,27 @@ def suggest_alternative_urls(blocked_url: str) -> dict:
     }
 
 
-def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
+def web_fetch(url: str, project_name: str = "", max_length: int = 8000,
+              offset: int = 0) -> dict:
     """抓取指定 URL 的页面正文内容
 
     使用 trafilatura 智能提取正文（去除导航/广告等噪音）。
     如果 trafilatura 提取失败，自动降级为纯文本提取。
+    支持 offset 分段读取：首次调用 offset=0，若返回 truncated=true，
+    可用 next_offset 继续读取后续内容，实现"滚动"效果。
 
     Args:
         url: 要抓取的页面 URL，必须以 http:// 或 https:// 开头
         project_name: 项目名称（用于日志）
-        max_length: 返回最大字符数（默认3000，最大8000）
+        max_length: 返回最大字符数（默认8000，范围500~8000）
+        offset: 起始字符位置（默认0从开头开始）。用于继续读取被截断的内容
 
     Returns:
-        {"url": "...", "title": "...", "content": "...", "truncated": bool}
+        {"url": "...", "title": "...", "content": "...", "truncated": bool,
+         "offset": int, "next_offset": int, "total_length": int}
     """
     max_length = min(max(max_length, 500), 8000)
+    offset = max(offset, 0)
 
     # 验证 URL 格式
     if not re.match(r'^https?://', url):
@@ -639,15 +664,28 @@ def web_fetch(url: str, project_name: str = "", max_length: int = 3000) -> dict:
     if not title:
         title = _extract_title_fallback(html_text, url)
 
-    # 截断
-    truncated = len(content) > max_length
+    # 截断（支持 offset 分段读取）
+    total_len = len(content)
+    truncated = (offset + max_length) < total_len
+    content = content[offset:offset + max_length]
+    next_offset = offset + len(content) if truncated else None
+
+    if offset > 0:
+        content = f"[续：第 {offset + 1} 字符起]\n\n{content}"
+
     if truncated:
-        content = content[:max_length] + "\n\n... (页面过长，已截断)"
+        content += (
+            f"\n\n... (已显示 {offset + max_length}/{total_len} 字符，"
+            f"后续还有 {total_len - offset - max_length} 字符)"
+        )
 
     return {
         "url": url,
         "title": title,
         "content": content,
         "truncated": truncated,
+        "offset": offset,
+        "next_offset": next_offset,
+        "total_length": total_len,
         "content_length": len(content),
     }

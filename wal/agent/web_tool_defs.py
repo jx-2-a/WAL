@@ -25,6 +25,7 @@ WEB_TOOL_DEFINITIONS = [
                 "搜索互联网获取参考资料。用于研究世界观设定（历史、地理、科技、文化等）、"
                 "查证事实、寻找写作灵感。返回标题+URL+摘要，不包含完整页面内容。"
                 "如需深入阅读某条结果，请用 web_fetch 抓取完整内容。"
+                "⭐ 结果中标注了优先抓取来源——Wikipedia 对自动化友好，优先选择。"
                 "基于 Bing (cn.bing.com)，国内直连，免费零配置。"
             ),
             "parameters": {
@@ -54,8 +55,10 @@ WEB_TOOL_DEFINITIONS = [
             "description": (
                 "抓取指定 URL 的页面正文内容。用于深入阅读 web_search 找到的参考页面。"
                 "自动提取正文（去除导航/广告等噪音），返回纯文本。"
-                "适合获取详细的世界观资料、历史记载、科学解释等长文内容。"
                 "如果返回 403，用 suggest_alternative_urls 生成替代链接重试。"
+                "⭐ Wikipedia 链接优先抓取——对自动化友好，极少被拒。"
+                "支持分段读取：若返回 truncated=true，可用 next_offset 作为 offset 继续读取"
+                "后续内容，就像向下滚动页面一样。"
             ),
             "parameters": {
                 "type": "object",
@@ -66,7 +69,16 @@ WEB_TOOL_DEFINITIONS = [
                     },
                     "max_length": {
                         "type": "integer",
-                        "description": "返回最大字符数，默认3000，最大8000。超长内容会自动截断",
+                        "description": "返回最大字符数，默认8000，范围500~8000。超长内容会自动截断",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": (
+                            "起始字符位置，默认0从开头开始。"
+                            "当上一轮 web_fetch 返回 truncated=true 时，"
+                            "用返回的 next_offset 值继续读取后续内容（向下滚动）。"
+                            "例如：上次返回 next_offset=8000，则传 offset=8000 读第8001字符起的内容"
+                        ),
                     },
                 },
                 "required": ["url"],
@@ -124,7 +136,8 @@ def execute_web_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         "web_fetch": lambda: web_fetch(
             url=arguments["url"],
             project_name=project_name,
-            max_length=arguments.get("max_length", 3000),
+            max_length=arguments.get("max_length", 8000),
+            offset=arguments.get("offset", 0),
         ),
         "suggest_alternative_urls": lambda: suggest_alternative_urls(
             blocked_url=arguments["blocked_url"],
