@@ -1,21 +1,63 @@
-"""WAL 暗色终端窗口 — 内嵌 REPL 进程"""
+"""WAL 暗色终端窗口 — 内嵌 REPL 进程 + ANSI 颜色解析"""
 
 import os
+import re
 import subprocess
 import threading
 import queue
 import tkinter as tk
-from tkinter import font
 
 from wal.gui.theme import (
     BG_DARK, BG_MID, BG_INPUT,
     FG_PRIMARY, FG_SECONDARY, FG_ACCENT, FG_GREEN, FG_YELLOW,
-    FONT_FAMILY, FONT_SIZE, FONT_BOLD_14, FONT_NORMAL, FONT_BOLD, FONT_SMALL,
+    FONT_FAMILY, FONT_BOLD, FONT_NORMAL,
 )
+
+# ── ANSI → tkinter 颜色映射 ──────────────────────
+ANSI_COLORS = {
+    "30": BG_DARK,     "31": FG_ACCENT,   "32": FG_GREEN,
+    "33": FG_YELLOW,   "34": "#569cd6",   "35": "#c586c0",
+    "36": "#4ec9b0",   "37": FG_PRIMARY,
+    "90": FG_SECONDARY, "91": "#f44747",   "92": FG_GREEN,
+    "93": FG_YELLOW,   "94": "#569cd6",   "95": "#c586c0",
+    "96": "#4ec9b0",   "97": "#ffffff",
+}
+
+ANSI_RE = re.compile(r"\x1b\[([0-9;]*)m")
+
+
+def _parse_ansi_to_segments(text: str) -> list[tuple[str, str | None]]:
+    """将含 ANSI 转义码的文本拆为 (内容, 颜色) 段"""
+    segments = []
+    current_color = None
+    last_end = 0
+
+    for m in ANSI_RE.finditer(text):
+        # 前面的纯文本
+        plain = text[last_end:m.start()]
+        if plain:
+            segments.append((plain, current_color))
+
+        codes = m.group(1)
+        if codes == "" or codes == "0":
+            current_color = None
+        else:
+            for code in codes.split(";"):
+                c = ANSI_COLORS.get(code)
+                if c:
+                    current_color = c
+        last_end = m.end()
+
+    # 剩余文本
+    tail = text[last_end:]
+    if tail:
+        segments.append((tail, current_color))
+
+    return segments
 
 
 class WalTerminal:
-    """暗色终端包装器 — 内嵌 WAL REPL 子进程"""
+    """暗色终端 — 内嵌 WAL REPL，解析 ANSI 颜色"""
 
     def __init__(self, root: tk.Tk, project: str, mode: str = "writing",
                  model: str = "deepseek-chat"):
@@ -24,18 +66,26 @@ class WalTerminal:
         self.mode = mode
         self.model = model
 
-        self.root.title(f"WAL 1.0 — {project} [{mode}]")
+        self.root.title(f"WAL — {project} [{mode}]")
         self.root.configure(bg=BG_DARK)
         self.root.geometry("960x640")
         self.root.minsize(600, 400)
 
-        # 响应式
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=0)
 
-        # ── 菜单 ──
-        self._build_menu()
+        # ── 菜单（精简：仅重启 + 退出）──
+        menubar = tk.Menu(root, bg=BG_MID, fg=FG_PRIMARY,
+                          activebackground=BG_INPUT, activeforeground=FG_PRIMARY,
+                          relief="flat", bd=0)
+        root.config(menu=menubar)
+        file_menu = tk.Menu(menubar, tearoff=0, bg=BG_MID, fg=FG_PRIMARY,
+                            activebackground=BG_INPUT, activeforeground=FG_PRIMARY)
+        file_menu.add_command(label="重启 REPL", command=self.restart)
+        file_menu.add_separator()
+        file_menu.add_command(label="退出", command=self.quit)
+        menubar.add_cascade(label="WAL", menu=file_menu)
 
         # ── 输出区 ──
         text_frame = tk.Frame(root, bg=BG_DARK)
@@ -67,8 +117,7 @@ class WalTerminal:
         input_frame.columnconfigure(1, weight=1)
 
         tk.Label(
-            input_frame, text="▸", bg=BG_MID, fg=FG_ACCENT,
-            font=FONT_BOLD,
+            input_frame, text="▸", bg=BG_MID, fg=FG_ACCENT, font=FONT_BOLD,
         ).grid(row=0, column=0, padx=(10, 4))
 
         self.input_entry = tk.Entry(
@@ -91,33 +140,20 @@ class WalTerminal:
         self.history: list[str] = []
         self.history_idx = -1
 
+        # ── ANSI 解析状态 ──
+        self._ansi_buf = ""
+
+        # ── 定义颜色 tags ──
+        for code, color in ANSI_COLORS.items():
+            tag = f"c_{color.replace('#', '')}"
+            self.output.tag_config(tag, foreground=color)
+        # 默认 tag
+        self.output.tag_config("c_default", foreground=FG_PRIMARY)
+
         # ── 启动 ──
         self._start_repl()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self.root.after(50, self._poll_output)
-
-    # ── 菜单 ──────────────────────────────────────
-
-    def _build_menu(self):
-        menubar = tk.Menu(self.root, bg=BG_MID, fg=FG_PRIMARY,
-                          activebackground=BG_INPUT, activeforeground=FG_PRIMARY,
-                          relief="flat", bd=0)
-        self.root.config(menu=menubar)
-
-        file_menu = tk.Menu(menubar, tearoff=0, bg=BG_MID, fg=FG_PRIMARY,
-                            activebackground=BG_INPUT, activeforeground=FG_PRIMARY)
-        file_menu.add_command(label="重启 REPL", command=self.restart)
-        file_menu.add_separator()
-        file_menu.add_command(label="退出", command=self.quit)
-        menubar.add_cascade(label="WAL", menu=file_menu)
-
-        mode_menu = tk.Menu(menubar, tearoff=0, bg=BG_MID, fg=FG_PRIMARY,
-                            activebackground=BG_INPUT, activeforeground=FG_PRIMARY)
-        for m in ("writing", "planning", "autonomous"):
-            label = f"◆ {m}" if m == self.mode else f"  {m}"
-            mode_menu.add_command(label=label,
-                                  command=lambda m=m: self._switch_mode(m))
-        menubar.add_cascade(label="模式", menu=mode_menu)
 
     # ── 进程管理 ──────────────────────────────────
 
@@ -131,8 +167,12 @@ class WalTerminal:
                self.project, "--mode", self.mode, "--model", self.model]
         self._append(f"[系统] 启动: {' '.join(cmd)}\n", FG_GREEN)
 
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+
         self.process = subprocess.Popen(
-            cmd, cwd=cwd,
+            cmd, cwd=cwd, env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace",
@@ -141,7 +181,7 @@ class WalTerminal:
         self.running = True
         self.reader_thread = threading.Thread(target=self._read_output, daemon=True)
         self.reader_thread.start()
-        self.root.title(f"WAL 1.0 — {self.project} [{self.mode}]")
+        self.root.title(f"WAL — {self.project} [{self.mode}]")
 
     def _read_output(self):
         try:
@@ -161,7 +201,7 @@ class WalTerminal:
             while True:
                 kind, text = self.output_queue.get_nowait()
                 if kind == "out":
-                    self._append(text)
+                    self._append_ansi(text)
                 elif kind == "exit":
                     self._append("\n[系统] 进程已退出 — 可通过菜单重启\n", FG_ACCENT)
                     self.running = False
@@ -182,12 +222,22 @@ class WalTerminal:
             except (BrokenPipeError, OSError):
                 self._append("[系统] 无法发送输入，进程已关闭\n", FG_ACCENT)
 
-    # ── 输出 ──────────────────────────────────────
+    # ── 输出（带 ANSI 解析）───────────────────────
+
+    def _append_ansi(self, text: str):
+        """解析 ANSI 码后按颜色插入 Text 控件"""
+        segments = _parse_ansi_to_segments(text)
+        self.output.config(state="normal")
+        for seg_text, color in segments:
+            tag = f"c_{color.replace('#', '')}" if color else "c_default"
+            self.output.insert("end", seg_text, tag)
+        self.output.see("end")
+        self.output.config(state="disabled")
 
     def _append(self, text: str, color: str = FG_PRIMARY):
+        """纯色文本追加（无 ANSI）"""
         self.output.config(state="normal")
         tag = f"c_{color.replace('#', '')}"
-        self.output.tag_config(tag, foreground=color)
         self.output.insert("end", text, tag)
         self.output.see("end")
         self.output.config(state="disabled")
@@ -218,15 +268,6 @@ class WalTerminal:
         return "break"
 
     # ── 控制 ──────────────────────────────────────
-
-    def _switch_mode(self, mode: str):
-        if mode == self.mode:
-            return
-        self.mode = mode
-        self._append(f"\n[系统] 切换到 {mode} 模式...\n", FG_YELLOW)
-        self._kill_process()
-        self.output_queue = queue.Queue()
-        self._start_repl()
 
     def restart(self):
         self._append("\n[系统] 正在重启...\n", FG_YELLOW)

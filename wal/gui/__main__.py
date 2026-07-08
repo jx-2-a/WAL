@@ -1,4 +1,4 @@
-"""python -m wal.gui 入口"""
+"""python -m wal.gui 入口 — 仿 start.ps1 交互流"""
 
 import sys
 import os
@@ -9,7 +9,15 @@ from pathlib import Path
 
 from wal.gui.selector import ProjectSelector
 from wal.gui.terminal import WalTerminal
-from wal.gui.theme import BG_DARK
+
+
+def _init_dpi():
+    """Windows 高 DPI 适配"""
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
 
 
 def _scan_projects() -> list[str]:
@@ -23,6 +31,8 @@ def _scan_projects() -> list[str]:
 
 
 def main():
+    _init_dpi()
+
     parser = argparse.ArgumentParser(
         description="WAL 暗色终端窗口",
         prog="python -m wal.gui",
@@ -36,44 +46,40 @@ def main():
 
     project = args.project
 
-    # ── 无项目 → 先选 ──
+    # ── 无项目 → 始终弹选择窗 ──
     if not project:
         projects = _scan_projects()
+
         if not projects:
+            # 零项目 → 直接创建
             root = tk.Tk()
             root.withdraw()
-            messagebox.showerror(
-                "错误",
-                "未找到项目。\n"
-                "请在 projects/ 目录下创建项目，或指定项目名：\n"
-                "  python -m wal.gui <project_name>"
+            name = messagebox.askstring(
+                "创建项目", "没有找到项目。\n\n输入新项目名称:",
+                parent=root,
             )
             root.destroy()
-            sys.exit(1)
-
-        # 只有一个项目 → 直接启动
-        if len(projects) == 1:
-            project = projects[0]
-            root = tk.Tk()
+            if not name:
+                sys.exit(0)
+            project = name
         else:
+            # 有项目 → 弹选择窗
             root = tk.Tk()
-            root.geometry("400x300+100+100")
-            root.title("WAL")
-            root.configure(bg=BG_DARK)
-            root.update()
-
             selector = ProjectSelector(root, projects)
-            root.wait_window(selector)
+            root.mainloop()  # 选择器会调用 root.quit() 退出
+
             project = selector.result
             if not project:
-                root.destroy()
                 sys.exit(0)
+            mode = selector.mode
+            root.destroy()
 
-            for w in root.winfo_children():
-                w.destroy()
-    else:
-        root = tk.Tk()
+            # mode 已在选择器中设置
+            if mode and mode != args.mode:
+                args.mode = mode
 
+    # ── 启动终端 ──
+    root = tk.Tk()
     WalTerminal(root, project, mode=args.mode, model=args.model)
     root.mainloop()
 

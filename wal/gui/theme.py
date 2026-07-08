@@ -10,10 +10,11 @@ FG_ACCENT    = "#e94560"
 FG_GREEN     = "#50fa7b"
 FG_YELLOW    = "#f0c040"
 
-# ── 字体规格（tkinter 原生元组格式，避免创建 root 前实例化）──
-FONT_FAMILY = "Cascadia Code"
+# ── 字体 ───────────────────────────────────────────
+# 微软雅黑：Windows 中文系统标准字体，支持 CJK，等宽数字
+FONT_FAMILY = "Microsoft YaHei"
 FONT_NORMAL = (FONT_FAMILY, 11)
 FONT_BOLD   = (FONT_FAMILY, 11, "bold")
 FONT_BOLD_14 = (FONT_FAMILY, 14, "bold")
 FONT_SMALL  = (FONT_FAMILY, 10)
-FONT_SIZE   = 11  # 向后兼容
+FONT_SIZE   = 11
