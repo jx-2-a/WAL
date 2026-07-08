@@ -6,7 +6,8 @@ import argparse
 import tkinter as tk
 from pathlib import Path
 
-from wal.gui.selector import ProjectSelector, launch_in_terminal
+from wal.gui.selector import ProjectSelector
+from wal.gui.terminal import WalTerminal
 
 
 def _init_dpi():
@@ -31,7 +32,7 @@ def main():
     _init_dpi()
 
     parser = argparse.ArgumentParser(
-        description="WAL 启动器", prog="python -m wal.gui")
+        description="WAL 终端", prog="python -m wal.gui")
     parser.add_argument("project", nargs="?",
                         help="项目名称（不指定则弹窗选择）")
     parser.add_argument("--mode", default="writing",
@@ -40,29 +41,38 @@ def main():
     args, unknown = parser.parse_known_args()
 
     if args.project:
-        launch_in_terminal(args.project, mode=args.mode, model=args.model)
+        root = tk.Tk()
+        WalTerminal(root, args.project, mode=args.mode, model=args.model)
+        root.mainloop()
         sys.exit(0)
 
     # ── 弹窗选项目 ──
     projects = _scan_projects()
 
     root = tk.Tk()
-    # 不 withdraw，否则 Toplevel 弹不出来
-    root.geometry("1x1+-100+-100")  # 缩到屏幕外
-    root.title("WAL")
+    root.geometry("1x1+-100+-100")
 
     if not projects:
         from tkinter import messagebox
         name = messagebox.askstring(
             "创建项目", "没有找到项目。\n\n输入新项目名称:", parent=root)
-        if name:
-            launch_in_terminal(name, mode=args.mode, model=args.model)
+        if not name:
+            sys.exit(0)
+        mode = args.mode
     else:
         selector = ProjectSelector(root, projects)
-        root.wait_window(selector)  # 等待选择器关闭
-        # launch_in_terminal 已在 selector._launch() 中调用
+        root.wait_window(selector)
+        name = selector.result
+        mode = getattr(selector, 'mode', args.mode)
+        if not name:
+            sys.exit(0)
 
     root.destroy()
+
+    # ── 启动终端窗口 ──
+    root = tk.Tk()
+    WalTerminal(root, name, mode=mode, model=args.model)
+    root.mainloop()
 
 
 if __name__ == "__main__":
