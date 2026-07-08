@@ -40,28 +40,27 @@ def main():
     args, unknown = parser.parse_known_args()
 
     if args.project:
-        # 直接启动
         launch_in_terminal(args.project, mode=args.mode, model=args.model)
         sys.exit(0)
 
-    # 弹窗选择
+    # ── 弹窗选项目 ──
     projects = _scan_projects()
 
     root = tk.Tk()
-    root.withdraw()
+    # 不 withdraw，否则 Toplevel 弹不出来
+    root.geometry("1x1+-100+-100")  # 缩到屏幕外
+    root.title("WAL")
 
     if not projects:
         from tkinter import messagebox
         name = messagebox.askstring(
             "创建项目", "没有找到项目。\n\n输入新项目名称:", parent=root)
-        if not name:
-            sys.exit(0)
+        if name:
+            launch_in_terminal(name, mode=args.mode, model=args.model)
     else:
         selector = ProjectSelector(root, projects)
-        root.wait_window(selector)
-        name = selector.result
-        if not name:
-            sys.exit(0)
+        root.wait_window(selector)  # 等待选择器关闭
+        # launch_in_terminal 已在 selector._launch() 中调用
 
     root.destroy()
 
