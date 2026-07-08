@@ -1,6 +1,5 @@
-"""WAL GUI 主题 — 颜色、字体规格"""
+"""WAL GUI 主题"""
 
-# ── 颜色 ───────────────────────────────────────────
 BG_DARK      = "#1a1a2e"
 BG_MID       = "#16213e"
 BG_INPUT     = "#0f3460"
@@ -10,8 +9,6 @@ FG_ACCENT    = "#e94560"
 FG_GREEN     = "#50fa7b"
 FG_YELLOW    = "#f0c040"
 
-# ── 字体 ───────────────────────────────────────────
-# 微软雅黑：Windows 中文系统标准字体，支持 CJK，等宽数字
 FONT_FAMILY = "Microsoft YaHei"
 FONT_NORMAL = (FONT_FAMILY, 11)
 FONT_BOLD   = (FONT_FAMILY, 11, "bold")

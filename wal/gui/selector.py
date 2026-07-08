@@ -1,4 +1,4 @@
-"""项目选择窗口 — 仿 start.ps1 交互流"""
+"""项目选择弹窗 — 选完即关闭，启动终端"""
 
 import os
 import subprocess
@@ -11,101 +11,101 @@ from wal.gui.theme import (
     FONT_FAMILY, FONT_BOLD_14, FONT_NORMAL, FONT_SMALL,
 )
 
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
 
-class ProjectSelector:
-    """启动时选择 WAL 项目 — 编号选择 + 输入名字创建"""
+
+def _find_terminal() -> str | None:
+    """探测可用的终端模拟器，优先 Windows Terminal"""
+    # Windows Terminal (Win10 1903+)
+    wt = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe")
+    if os.path.exists(wt):
+        return wt
+    # 系统 PATH 中的 wt
+    if subprocess.run(["where", "wt"], capture_output=True, shell=True).returncode == 0:
+        return "wt"
+    return None
+
+
+def launch_in_terminal(project: str, mode: str = "writing",
+                       model: str = "deepseek-chat") -> None:
+    """在 Windows Terminal / PowerShell 中启动 start.ps1"""
+    start_ps1 = os.path.join(SCRIPT_DIR, "start.ps1")
+
+    mode_arg = "-Mode" if mode != "writing" else ""
+    mode_val = mode if mode != "writing" else ""
+
+    cmd = f"& '{start_ps1}' '{project}' {mode_arg} {mode_val}"
+    cmd = cmd.strip()
+
+    wt = _find_terminal()
+    if wt:
+        # Windows Terminal: wt -d <cwd> powershell -NoExit -Command "..."
+        subprocess.Popen(
+            [wt, "-d", SCRIPT_DIR, "powershell", "-NoExit", "-Command", cmd],
+            creationflags=subprocess.CREATE_NO_WINDOW
+            if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        )
+    else:
+        # 回退 PowerShell
+        subprocess.Popen(
+            ["powershell", "-NoExit", "-Command",
+             f"cd '{SCRIPT_DIR}'; {cmd}"],
+        )
+
+
+class ProjectSelector(tk.Toplevel):
+    """选择项目 + 模式，确认后启动终端并关闭"""
 
     def __init__(self, parent: tk.Tk, projects: list[str]):
-        self.parent = parent
+        super().__init__(parent)
         self.result: str | None = None
-        self.projects = projects
-        self.mode = "writing"  # 默认模式
+        self.mode = "writing"
 
-        parent.title("WAL — 选择项目")
-        parent.configure(bg=BG_DARK)
-        parent.geometry("520x440")
-        parent.minsize(420, 320)
+        self.title("WAL — 选择项目")
+        self.configure(bg=BG_DARK)
+        self.geometry("480x400")
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
 
-        # 居中
-        parent.update_idletasks()
-        w, h = 520, 440
-        sw = parent.winfo_screenwidth()
-        sh = parent.winfo_screenheight()
-        x = (sw - w) // 2
-        y = (sh - h) // 2
-        parent.geometry(f"{w}x{h}+{x}+{y}")
-
-        self._build_ui()
-
-        # 聚焦输入框
-        self.input_entry.focus_set()
-
-    # ── UI ─────────────────────────────────────────
-
-    def _build_ui(self):
-        parent = self.parent
-
-        # 清空已有内容（如果有）
-        for w in parent.winfo_children():
-            w.destroy()
+        self._center(parent)
 
         # 标题
         tk.Label(
-            parent, text="WAL 1.0 — 小说写作 Agent",
-            bg=BG_DARK, fg=FG_GREEN,
-            font=FONT_BOLD_14,
-        ).pack(pady=(20, 5))
+            self, text="WAL 1.0 — 小说写作 Agent",
+            bg=BG_DARK, fg=FG_GREEN, font=FONT_BOLD_14,
+        ).pack(pady=(20, 10))
 
-        # ── 项目列表 ──
-        list_frame = tk.Frame(parent, bg=BG_DARK)
-        list_frame.pack(fill="both", expand=True, padx=30, pady=(10, 0))
-
-        tk.Label(
-            list_frame, text="已有项目:", bg=BG_DARK, fg=FG_SECONDARY,
-            font=FONT_SMALL,
-        ).pack(anchor="w")
-
-        list_inner = tk.Frame(list_frame, bg=BG_MID)
-        list_inner.pack(fill="both", expand=True, pady=(4, 0))
+        # 项目列表
+        list_frame = tk.Frame(self, bg=BG_MID)
+        list_frame.pack(fill="both", expand=True, padx=30, pady=(0, 10))
 
         self.listbox = tk.Listbox(
-            list_inner,
+            list_frame,
             bg=BG_MID, fg=FG_PRIMARY,
             selectbackground=BG_INPUT, selectforeground=FG_PRIMARY,
             font=FONT_NORMAL,
             relief="flat", borderwidth=0,
-            activestyle="none",
-            highlightthickness=0,
+            activestyle="none", highlightthickness=0,
         )
         self.listbox.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
+        self.listbox.bind("<Double-Button-1>", lambda e: self._launch_selected())
+        self.listbox.bind("<Return>", lambda e: self._launch_selected())
 
-        scrollbar = tk.Scrollbar(list_inner, bg=BG_MID, troughcolor=BG_MID,
-                                 activebackground=BG_INPUT, relief="flat")
-        scrollbar.pack(side="right", fill="y", padx=(0, 4), pady=8)
-        self.listbox.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.listbox.yview)
-
-        # 绑定
-        self.listbox.bind("<Double-Button-1>", lambda e: self._select_by_number())
-        self.listbox.bind("<Return>", lambda e: self._select_by_number())
-        self.listbox.bind("<<ListboxSelect>>", self._on_list_select)
-
-        for p in self.projects:
-            self.listbox.insert("end", f"  {p}")
-        if self.projects:
+        for i, p in enumerate(projects, 1):
+            self.listbox.insert("end", f"  {i}. {p}")
+        if projects:
             self.listbox.selection_set(0)
 
-        # ── 输入区 ──
-        input_frame = tk.Frame(parent, bg=BG_DARK)
-        input_frame.pack(fill="x", padx=30, pady=(12, 0))
-
+        # 输入行
         tk.Label(
-            input_frame, text="输入编号选择, 或输入名字创建新项目:", bg=BG_DARK,
-            fg=FG_SECONDARY, font=FONT_SMALL,
-        ).pack(anchor="w")
+            self, text="输入编号选择, 或输入名字创建新项目:",
+            bg=BG_DARK, fg=FG_SECONDARY, font=FONT_SMALL,
+        ).pack(anchor="w", padx=30)
 
-        entry_frame = tk.Frame(parent, bg=BG_DARK)
-        entry_frame.pack(fill="x", padx=30, pady=(4, 12))
+        entry_frame = tk.Frame(self, bg=BG_DARK)
+        entry_frame.pack(fill="x", padx=30, pady=(4, 8))
 
         self.input_entry = tk.Entry(
             entry_frame,
@@ -115,15 +115,12 @@ class ProjectSelector:
             relief="flat", borderwidth=0,
         )
         self.input_entry.pack(fill="x", ipady=6, padx=8)
-        self.input_entry.bind("<Return>", self._on_enter)
+        self.input_entry.bind("<Return>", lambda e: self._submit())
+        self.input_entry.focus_set()
 
-        # ── 按钮行 ──
-        btn_frame = tk.Frame(parent, bg=BG_DARK)
-        btn_frame.pack(fill="x", padx=30, pady=(0, 8))
-
-        # 模式选择（writing / planning / autonomous）
-        mode_frame = tk.Frame(btn_frame, bg=BG_DARK)
-        mode_frame.pack(side="left")
+        # 模式
+        mode_frame = tk.Frame(self, bg=BG_DARK)
+        mode_frame.pack(fill="x", padx=30, pady=(0, 4))
         tk.Label(mode_frame, text="模式:", bg=BG_DARK, fg=FG_SECONDARY,
                  font=FONT_SMALL).pack(side="left")
         self.mode_var = tk.StringVar(value="writing")
@@ -134,20 +131,21 @@ class ProjectSelector:
                 selectcolor=BG_MID,
                 activebackground=BG_DARK, activeforeground=FG_PRIMARY,
                 font=FONT_SMALL, relief="flat",
-            ).pack(side="left", padx=(8, 0))
+            ).pack(side="left", padx=(10, 0))
 
         # 按钮
-        self.launch_btn = tk.Button(
-            btn_frame, text="启动", command=self._select_by_number,
+        btn_frame = tk.Frame(self, bg=BG_DARK)
+        btn_frame.pack(fill="x", padx=30, pady=(4, 20))
+        tk.Button(
+            btn_frame, text="启动终端", command=self._launch_selected,
             bg=BG_INPUT, fg=FG_GREEN,
             activebackground=BG_MID, activeforeground=FG_GREEN,
             font=FONT_SMALL,
             relief="flat", borderwidth=0, padx=20, pady=4,
             cursor="hand2",
-        )
-        self.launch_btn.pack(side="right", padx=(8, 0))
+        ).pack(side="right", padx=(6, 0))
         tk.Button(
-            btn_frame, text="取消", command=self._quit,
+            btn_frame, text="取消", command=self.destroy,
             bg=BG_MID, fg=FG_ACCENT,
             activebackground=BG_INPUT, activeforeground=FG_ACCENT,
             font=FONT_SMALL,
@@ -155,104 +153,54 @@ class ProjectSelector:
             cursor="hand2",
         ).pack(side="right")
 
-        # 提示
-        tk.Label(
-            parent, text="项目存放在 projects/ 目录下，每个项目一个文件夹",
-            bg=BG_DARK, fg=FG_SECONDARY,
-            font=(FONT_FAMILY, 9),
-        ).pack(pady=(0, 12))
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
 
-    # ── 事件 ──────────────────────────────────────
+    # ── 逻辑 ─────────────────────────────────────
 
-    def _on_list_select(self, event):
-        """列表选中时同步到输入框"""
+    def _center(self, parent: tk.Tk):
+        self.update_idletasks()
+        w, h = 480, 400
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+
+    def _launch_selected(self):
         sel = self.listbox.curselection()
         if sel:
             idx = sel[0]
-            self.input_entry.delete(0, "end")
-            self.input_entry.insert(0, str(idx + 1))
-
-    def _on_enter(self, event):
-        self._submit()
-
-    def _select_by_number(self):
-        """从列表选中项启动"""
-        sel = self.listbox.curselection()
-        if sel:
-            idx = sel[0]
-            self.result = self.projects[idx]
-            self.mode = self.mode_var.get()
-            self.parent.quit()
+            if idx < len(self.listbox.get(0, "end")):
+                # 提取名字（去掉编号前缀）
+                text = self.listbox.get(idx).strip()
+                # 格式: "1. 项目名"
+                parts = text.split(". ", 1)
+                name = parts[1] if len(parts) > 1 else text
+                self._launch(name)
 
     def _submit(self):
-        """处理输入：数字=选择项目，文字=创建新项目"""
         text = self.input_entry.get().strip()
         if not text:
-            # 空输入 → 用列表选中项
-            self._select_by_number()
+            self._launch_selected()
             return
 
-        # 数字 → 选择对应编号的项目
         if text.isdigit():
             idx = int(text) - 1
-            if 0 <= idx < len(self.projects):
-                self.result = self.projects[idx]
-                self.mode = self.mode_var.get()
-                self.parent.quit()
+            items = self.listbox.get(0, "end")
+            if 0 <= idx < len(items):
+                parts = items[idx].strip().split(". ", 1)
+                name = parts[1] if len(parts) > 1 else items[idx].strip()
+                self._launch(name)
                 return
             else:
-                messagebox.showwarning("无效编号",
-                                       f"请输入 1-{len(self.projects)} 之间的编号",
-                                       parent=self.parent)
+                messagebox.showwarning("无效编号", f"请输入 1-{len(items)}",
+                                       parent=self)
                 return
 
-        # 文字 → 创建新项目或使用已有项目名
-        name = text
-        if name in self.projects:
-            self.result = name
-            self.mode = self.mode_var.get()
-            self.parent.quit()
-            return
+        # 文字 → 项目名
+        self._launch(text)
 
-        # 确认创建
-        if messagebox.askyesno(
-            "创建新项目",
-            f"创建新项目 '{name}'?\n\n将使用默认设置创建。",
-            parent=self.parent,
-        ):
-            ok = self._create_project(name)
-            if ok:
-                self.result = name
-                self.mode = self.mode_var.get()
-                self.parent.quit()
-            else:
-                messagebox.showerror("创建失败", f"无法创建项目 '{name}'",
-                                     parent=self.parent)
-
-    def _create_project(self, name: str) -> bool:
-        """调用 CLI 创建新项目"""
-        venv = os.environ.get("WAL_VENV", "d:/PyVenv/WAL")
-        python = os.path.join(venv, "Scripts", "python.exe")
-        script_dir = os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))))
-
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONUTF8"] = "1"
-
-        try:
-            r = subprocess.run(
-                [python, "-m", "wal.cli.main", "init", name,
-                 "--author", "佚名", "--summary", "新故事", "--genre", "General"],
-                cwd=script_dir, env=env,
-                capture_output=True, text=True,
-                encoding="utf-8", errors="replace",
-                timeout=30,
-            )
-            return r.returncode == 0
-        except Exception:
-            return False
-
-    def _quit(self):
-        self.result = None
-        self.parent.quit()
+    def _launch(self, project: str):
+        mode = self.mode_var.get()
+        self.result = project
+        self.mode = mode
+        launch_in_terminal(project, mode)
+        self.destroy()
