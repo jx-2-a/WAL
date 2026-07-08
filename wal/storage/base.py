@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
-from .database import Database
+from .connection import Database
 
 
 def _json_serialize(value: Any) -> str:

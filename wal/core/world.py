@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..models.world import Location, WorldSetting, WorldRule, TimelineEvent
-from ..storage.database import Database
-from ..storage.world_repo import WorldRepository
+from ..storage.connection import Database
+from ..storage.world import WorldRepository
 
 
 class WorldManager:
@@ -24,8 +24,6 @@ class WorldManager:
 
         if not self.db.schema_exists():
             self.db.init_schema()
-            if (self.project_dir / "story.yaml").exists():
-                self.db.migrate_from_yaml(str(self.project_dir))
 
         self._world: Optional[WorldSetting] = None
         self._locations: dict[str, Location] = {}

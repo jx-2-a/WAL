@@ -24,7 +24,7 @@ def main():
     args = parser.parse_args()
 
     from wal.agent.repl import TerminalREPL
-    from wal.agent.plan_mode import AgentMode
+    from wal.agent.modes import AgentMode
 
     api_key = args.api_key or os.environ.get("DEEPSEEK_API_KEY", "")
 

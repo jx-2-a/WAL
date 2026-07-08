@@ -1,7 +1,7 @@
-from .core import AgentLoop
+from .loop import AgentLoop
 from .repl import TerminalREPL
 from .tool_defs import TOOL_DEFINITIONS, execute_tool
-from .plan_mode import AgentMode, PLANNING_SYSTEM_PROMPT, AUTONOMOUS_SYSTEM_PROMPT, MODE_SWITCH_MESSAGES
+from .modes import AgentMode, PLANNING_SYSTEM_PROMPT, AUTONOMOUS_SYSTEM_PROMPT, MODE_SWITCH_MESSAGES
 from .plan_tool_defs import PLAN_TOOL_DEFINITIONS, execute_plan_tool
 from .auto_tool_defs import AUTO_TOOL_DEFINITIONS, execute_auto_tool
 from .memory_tools import save_agent_memory, get_agent_memory, delete_agent_memory

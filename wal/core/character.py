@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..models.character import Character, Relationship, RelationType, CharacterSnapshot
-from ..storage.database import Database
-from ..storage.char_repo import CharacterRepository
+from ..storage.connection import Database
+from ..storage.character import CharacterRepository
 
 
 class CharacterManager:
@@ -25,8 +25,6 @@ class CharacterManager:
         # 自动初始化
         if not self.db.schema_exists():
             self.db.init_schema()
-            if (self.project_dir / "story.yaml").exists():
-                self.db.migrate_from_yaml(str(self.project_dir))
 
         self._ensure_story_exists()
         self._characters: dict[str, Character] = {}

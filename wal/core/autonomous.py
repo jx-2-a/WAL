@@ -17,8 +17,8 @@ from ..models.autonomous import (
     AutonomyLevel, AutoDecision, DecisionImpact,
     AutonomousState, Checkpoint,
 )
-from ..storage.auto_repo import AutoRepository
-from ..storage.database import Database
+from ..storage.autonomous import AutoRepository
+from ..storage.connection import Database
 
 
 class AutoManager:

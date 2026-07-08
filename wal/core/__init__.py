@@ -1,8 +1,8 @@
-from .story_manager import StoryManager
-from .plot_manager import PlotManager
-from .char_manager import CharacterManager
-from .world_manager import WorldManager
-from .index_manager import IndexManager
-from .auto_manager import AutoManager
+from .story import StoryManager
+from .plot import PlotManager
+from .character import CharacterManager
+from .world import WorldManager
+from .index import IndexManager
+from .autonomous import AutoManager
 
 __all__ = ["StoryManager", "PlotManager", "CharacterManager", "WorldManager", "IndexManager", "AutoManager"]

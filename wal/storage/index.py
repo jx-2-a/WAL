@@ -7,7 +7,7 @@
 from datetime import datetime
 from typing import Optional
 
-from .db_repo import DatabaseRepository
+from .base import DatabaseRepository
 
 
 class IndexRepository(DatabaseRepository):

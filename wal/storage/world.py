@@ -6,7 +6,7 @@
 
 from typing import Optional
 
-from .db_repo import DatabaseRepository
+from .base import DatabaseRepository
 
 
 class WorldRepository(DatabaseRepository):

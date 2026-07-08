@@ -8,9 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from ..storage.database import Database
-from ..storage.index_repo import IndexRepository
-from ..storage.story_repo import StoryRepository
+from ..storage.connection import Database
+from ..storage.index import IndexRepository
+from ..storage.story import StoryRepository
 
 
 class IndexManager:
@@ -144,7 +144,7 @@ class IndexManager:
                 locations_seen.add(str(location).strip())
 
         # 更新关键词索引（角色名、地点名）
-        from ..core.char_manager import CharacterManager
+        from ..core.character import CharacterManager
         cm = CharacterManager(str(self.project_dir))
         cm.load()
 
@@ -256,7 +256,7 @@ class IndexManager:
         index_entries = self.repo.get_entries_by_chapter(chapter_number)
 
         # 获取该章的剧情点
-        from ..core.plot_manager import PlotManager
+        from ..core.plot import PlotManager
         pm = PlotManager(str(self.project_dir))
         pm.load()
         plot_summary = pm.get_chapter_plot_summary(chapter_number)
@@ -372,8 +372,8 @@ class IndexManager:
 
         收集当前角色状态、剧情状态、伏笔状态。
         """
-        from ..core.char_manager import CharacterManager
-        from ..core.plot_manager import PlotManager
+        from ..core.character import CharacterManager
+        from ..core.plot import PlotManager
 
         # 章节信息
         chapters = self.story_repo.list_chapters()

@@ -15,8 +15,8 @@ from rich.live import Live
 from rich.text import Text
 from rich.spinner import Spinner
 
-from .core import AgentLoop
-from .plan_mode import AgentMode
+from .loop import AgentLoop
+from .modes import AgentMode
 
 # 品牌色
 ACCENT = "#6C5CE7"
@@ -51,7 +51,7 @@ class TerminalREPL:
 
         # 尝试从 agent_config 加载持久化的 quiet_mode
         try:
-            from wal.core.auto_manager import AutoManager
+            from wal.core.autonomous import AutoManager
             proj_base = Path(os.environ.get("WAL_PROJECTS", "projects"))
             proj_dir = str(proj_base / project_name)
             am = AutoManager(proj_dir)
@@ -388,7 +388,7 @@ class TerminalREPL:
 
         # 持久化到 agent_config
         try:
-            from wal.core.auto_manager import AutoManager
+            from wal.core.autonomous import AutoManager
             proj_base = Path(os.environ.get("WAL_PROJECTS", "projects"))
             proj_dir = str(proj_base / self.project_name)
             am = AutoManager(proj_dir)

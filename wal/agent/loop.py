@@ -16,14 +16,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
-from ..engine.llm_client import LLMClient
-from ..engine.context_manager import ContextManager, truncate_tool_result
-from ..engine.emoji_strip import should_strip_emoji, strip_emoji
+from ..engine.client import LLMClient
+from ..engine.context import ContextManager, truncate_tool_result
+from ..engine.utils import should_strip_emoji, strip_emoji
 from .tool_defs import TOOL_DEFINITIONS, execute_tool
 from .plan_tool_defs import PLAN_TOOL_DEFINITIONS, execute_plan_tool
 from .auto_tool_defs import AUTO_TOOL_DEFINITIONS, execute_auto_tool
 from .web_tool_defs import WEB_TOOL_DEFINITIONS, execute_web_tool
-from .plan_mode import AgentMode, PLANNING_SYSTEM_PROMPT, AUTONOMOUS_SYSTEM_PROMPT, MODE_SWITCH_MESSAGES
+from .modes import AgentMode, PLANNING_SYSTEM_PROMPT, AUTONOMOUS_SYSTEM_PROMPT, MODE_SWITCH_MESSAGES
 
 def _strip_if_needed(text: str) -> str:
     """当终端不支持 Emoji 时，替换为 ASCII"""

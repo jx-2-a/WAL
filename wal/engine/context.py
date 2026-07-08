@@ -254,7 +254,7 @@ class ContextManager:
             return messages
 
         try:
-            from ..core.index_manager import IndexManager
+            from ..core.index import IndexManager
             im = IndexManager(project_dir)
             results = im.search(user_query, limit=5)
             if not results:

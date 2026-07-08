@@ -12,8 +12,8 @@ from ..models.plot import (
     PlotType, PlotLevel, PlotLineStatus, PlotPointStatus,
     Foreshadowing, ForeshadowingStatus,
 )
-from ..storage.database import Database
-from ..storage.plot_repo import PlotRepository
+from ..storage.connection import Database
+from ..storage.plot import PlotRepository
 
 
 class PlotManager:
@@ -29,8 +29,6 @@ class PlotManager:
 
         if not self.db.schema_exists():
             self.db.init_schema()
-            if (self.project_dir / "story.yaml").exists():
-                self.db.migrate_from_yaml(str(self.project_dir))
 
         self._ensure_story_exists()
         self._plots: dict[str, PlotLine] = {}

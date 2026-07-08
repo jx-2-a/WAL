@@ -3,10 +3,10 @@
 from pathlib import Path
 from typing import Optional
 
-from ..core.story_manager import StoryManager
-from ..core.plot_manager import PlotManager
-from ..core.char_manager import CharacterManager
-from ..core.world_manager import WorldManager
+from ..core.story import StoryManager
+from ..core.plot import PlotManager
+from ..core.character import CharacterManager
+from ..core.world import WorldManager
 
 
 class ContextBuilder:
@@ -300,7 +300,7 @@ class ContextBuilder:
         try:
             project_dir = str(getattr(self.story, "project_dir", ""))
             if project_dir:
-                from ..core.index_manager import IndexManager
+                from ..core.index import IndexManager
                 im = IndexManager(project_dir)
                 keywords = im.list_keywords()[:20]
                 result["top_keywords"] = keywords

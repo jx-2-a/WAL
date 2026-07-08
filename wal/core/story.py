@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Optional
 
 from ..models.story import Story, Chapter, Scene, StoryStatus, Volume, Part
-from ..storage.database import Database
-from ..storage.story_repo import StoryRepository
+from ..storage.connection import Database
+from ..storage.story import StoryRepository
 
 
 class StoryManager:
@@ -27,9 +27,6 @@ class StoryManager:
         # 自动初始化架构 + 迁移（init_schema 幂等，可安全重复调用）
         if not self.db.schema_exists():
             self.db.init_schema()
-            # 尝试从 YAML 自动迁移
-            if (self.project_dir / "story.yaml").exists():
-                self.db.migrate_from_yaml(str(self.project_dir))
         else:
             # 已有数据库：仍然调用 init_schema 以运行增量迁移
             self.db.init_schema()
@@ -466,12 +463,12 @@ class StoryManager:
         ch_id = f"ch_{number:04d}"
 
         # —— 级联清理：角色快照 ——
-        from ..storage.char_repo import CharacterRepository
+        from ..storage.character import CharacterRepository
         char_repo = CharacterRepository(self.db)
         snapshots_deleted = char_repo.delete_snapshots_by_chapter(number)
 
         # —— 级联清理：情节点 + 伏笔引用 ——
-        from ..storage.plot_repo import PlotRepository
+        from ..storage.plot import PlotRepository
         plot_repo = PlotRepository(self.db)
         points_deleted = plot_repo.delete_points_by_chapter(number)
         fw_reset = plot_repo.reset_foreshadowing_chapter(number)
