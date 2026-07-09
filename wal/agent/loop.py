@@ -79,7 +79,10 @@ SYSTEM_PROMPT = """你是 WAL 小说写作助手，一个专业的 AI 小说创�
 - 如有需要，主动用 add_chapter、add_character、add_plot_line、add_foreshadowing 扩充故事
 - 使用 add_foreshadowing 记录新伏笔，resolve_foreshadowing 收束伏笔
 - 使用 get_character_evolution 查看角色成长轨迹
-- 🌐 **联网搜索**：研究世界观设定（历史、地理、科技、文化）、查证事实时用 web_search 搜索；需要深入阅读某条结果时用 web_fetch 抓取页面正文。如果 web_fetch 返回 403，立即用 suggest_alternative_urls 获取替代链接，**然后必须立刻调用 web_fetch 抓取这些替代链接**，不要停在只拿链接不抓取。搜索结果仅作写作参考，不要原文照搬
+- 🌐 **联网搜索分两条路径，按需选择**：
+	  **📖 百科查询 `encyclopedia_search`**：查词条、概念、人物、历史事件、专业术语时**优先用这个**。直接返回百科正文（不是摘要列表），比 web_search+web_fetch 更精准高效。优先级链：Wikipedia中文 → 360百科 → 百度百科(仅摘要) → Wikipedia英文。结果自动缓存到本地，同词条再次查询秒出，无需联网；用 skip_cache=true 可强制刷新
+	  **🔍 网页搜索 `web_search` + `web_fetch`**：搜百科覆盖不到的开放信息（新闻、观点、最新动态、小众话题）。web_search 返回标题+URL+摘要列表，需要深入阅读某条结果时用 web_fetch 抓取页面正文。如果 web_fetch 返回 403，立即用 suggest_alternative_urls 获取替代链接，**然后必须立刻调用 web_fetch 抓取这些替代链接**，不要停在只拿链接不抓取
+	  搜索结果仅作写作参考，不要原文照搬
 - ⚡ **每次写作完成后，务必用 save_agent_memory 保存关键进度！** 对话会被压缩，记忆不会。至少记录：当前章节号、最新剧情发展、重要角色状态变化、下一步写作计划
 - ⚡ **对话开始时，先用 get_agent_memory 回顾之前的写作进度**，不要凭"印象"写作
 - ⚡ **每次切换模式或开始新话题前，保存当前状态到记忆**
@@ -574,7 +577,7 @@ class AgentLoop:
             if tool_name == "switch_mode":
                 result = self._execute_switch_mode(args)
             # 联网搜索工具：跨模式可用（Planning + Writing）
-            elif tool_name in ("web_search", "web_fetch", "suggest_alternative_urls"):
+            elif tool_name in ("web_search", "web_fetch", "suggest_alternative_urls", "encyclopedia_search"):
                 result = execute_web_tool(tool_name, args, self.project_name)
             # 根据模式选择工具执行器
             elif self.mode == AgentMode.PLANNING:
