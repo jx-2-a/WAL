@@ -91,6 +91,7 @@ class TerminalREPL:
 
         self._stream_buffer: list[str] = []
         self._tool_count = 0
+        self._auto_task: str = ""  # 当前自主任务（用于每轮提醒注入）
 
     # ============================================================
     #  回调 — AgentLoop → UI
@@ -224,6 +225,7 @@ class TerminalREPL:
 
             # ---- 自主模式：进入连续自动循环 ----
             if self.current_mode == AgentMode.AUTONOMOUS:
+                self._auto_task = user_input  # 记录本次自主任务
                 while self.current_mode == AgentMode.AUTONOMOUS:
                     # 轮间等待：按 Enter 暂停，超时自动继续
                     paused = self._wait_for_pause(2.0)
@@ -234,15 +236,24 @@ class TerminalREPL:
                         break  # 退出内层循环，回到外层等待用户输入
                     try:
                         self.console.print(f"\n[dim]── 自主继续 ──[/dim]")
-                        self._do_agent_turn("继续")
+                        # 每轮注入任务提醒，防止 Agent 遗忘目标或空转
+                        reminder = (
+                            f"继续推进。\n\n"
+                            f"[自主模式任务提醒]\n"
+                            f"当前任务：{self._auto_task}\n"
+                            f"如果此任务已完成，请调用 end_auto_session 暂停，不要空转。"
+                        )
+                        self._do_agent_turn(reminder)
                         # 检查是否应该自动停止（两道防线）
                         stop_reason = self.agent.check_auto_stop_reason()
                         if stop_reason:
                             self.console.print(
                                 f"\n[{SUCCESS}]✓ {stop_reason}[/{SUCCESS}]"
                             )
-                            self._stop_autonomous()
-                            break
+                            self.console.print(
+                                f"[{WARN}]自主模式已暂停。输入指令后继续，或 /sa 退出[/{WARN}]"
+                            )
+                            break  # 退出内层循环，停留自主模式等待用户指令
                     except KeyboardInterrupt:
                         # Ctrl+C 在 API 调用期间仍可强制中断
                         self.console.print(

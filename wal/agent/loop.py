@@ -558,6 +558,14 @@ class AgentLoop:
         """重置自主模式计数器（进入自主模式时调用）"""
         self._auto_idle_count = 0
         self._had_tool_calls = False
+        # 重置 auto_running 标记，避免上次会话的 end_auto_session
+        # 导致本次刚一进入就立即触发停止
+        try:
+            from wal.core.autonomous import AutoManager
+            am = AutoManager(self.project_dir)
+            am.repo.set_config("auto_running", "true")
+        except Exception:
+            pass
 
     def check_auto_stop_reason(self) -> str | None:
         """检查自主模式是否应自动停止。返回停止原因字符串，或 None 表示继续。
