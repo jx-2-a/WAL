@@ -594,7 +594,7 @@ def suggest_alternative_urls(blocked_url: str) -> dict:
 
     # 百度百科 → 360百科（需搜索提取真实文章 URL，360 用数字 ID 不能拼接）
     if "baike.baidu.com" in parsed.netloc:
-        logger.info(f"搜索 360百科: {query}")
+        logger.debug(f"搜索 360百科: {query}")
         baike360_url = _search_360baike(query)
         if baike360_url:
             alternatives.append({
@@ -957,7 +957,7 @@ def _enc_wikipedia_zh(query: str, max_length: int = 8000) -> dict:
         return {"error": "Wikipedia 中文搜索无结果", "query": query, "source": "wikipedia_zh"}
 
     best = search_results[0]
-    logger.info(f"Wiki ZH: {best['title']} (pageid={best['pageid']})")
+    logger.debug(f"Wiki ZH: {best['title']} (pageid={best['pageid']})")
 
     data = _get_wikipedia_extract(pageid=best["pageid"], lang="zh",
                                    exintro=False, max_chars=max_length)
@@ -1006,7 +1006,7 @@ def _enc_baidu_baike(query: str, max_length: int = 8000) -> dict:
         return {"error": "百度百科 API 无结果", "query": query, "source": "baidu_baike"}
 
     best = next((r for r in baidu_results if r["is_default"] == 1), baidu_results[0])
-    logger.info(f"百度百科: {best['lemma_title']} (id={best['lemma_id']})")
+    logger.debug(f"百度百科: {best['lemma_title']} (id={best['lemma_id']})")
     content_data = _get_baidu_baike_content(best["lemma_id"])
     if content_data and content_data.get("abstract_plain", "").strip():
         content = content_data["abstract_plain"]
@@ -1032,7 +1032,7 @@ def _enc_wikipedia_en(query: str, max_length: int = 8000) -> dict:
         return {"error": "Wikipedia 英文搜索无结果", "query": query, "source": "wikipedia_en"}
 
     best = search_results[0]
-    logger.info(f"Wiki EN: {best['title']} (pageid={best['pageid']})")
+    logger.debug(f"Wiki EN: {best['title']} (pageid={best['pageid']})")
 
     data = _get_wikipedia_extract(pageid=best["pageid"], lang="en",
                                    exintro=False, max_chars=max_length)
@@ -1135,7 +1135,7 @@ def encyclopedia_search(query: str, project_name: str = "",
         key = _cache_key(query, language)
         if key in cache:
             cached = cache[key]
-            logger.info(f"[百科] 缓存命中: {query} → {cached.get('source')} ({cached.get('title', '')})")
+            logger.debug(f"[百科] 缓存命中: {query} → {cached.get('source')} ({cached.get('title', '')})")
             cached["from_cache"] = True
             return cached
 
@@ -1158,7 +1158,7 @@ def encyclopedia_search(query: str, project_name: str = "",
         if source_name == "wikipedia_en" and not is_english and start_level < 3:
             continue
 
-        logger.info(f"[百科] {idx+1}/4 {source_label}: {query}")
+        logger.debug(f"[百科] {idx+1}/4 {source_label}: {query}")
         result = source_func(query, max_length=max_length)
         tried.append(source_name)
 
@@ -1173,9 +1173,9 @@ def encyclopedia_search(query: str, project_name: str = "",
             return result
 
         if is_disambig:
-            logger.info(f"[百科] {source_label} 返回消歧义页，继续下一级")
+            logger.debug(f"[百科] {source_label} 返回消歧义页，继续下一级")
         else:
-            logger.info(f"[百科] {source_label} 失败: {result.get('error', '内容过短')}")
+            logger.debug(f"[百科] {source_label} 失败: {result.get('error', '内容过短')}")
 
     return {
         "error": "所有百科来源均未找到该词条",
@@ -1202,6 +1202,6 @@ def _save_to_cache(project_name: str, query: str, language: str, result: dict):
             "saved_at": time.time(),
         }
         _save_encyclopedia_cache(project_name, cache)
-        logger.info(f"[百科缓存] 已保存: {query} → {result.get('source')}")
+        logger.debug(f"[百科缓存] 已保存: {query} → {result.get('source')}")
     except Exception as e:
         logger.warning(f"[百科缓存] 保存失败: {e}")

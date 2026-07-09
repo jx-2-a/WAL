@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from loguru import logger
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -46,8 +47,9 @@ class TerminalREPL:
         self.console = Console()
         self.current_mode = mode
 
-        # 安静模式 — 初始值，后续从 agent_config 加载
+        # 安静模式 / 详细模式
         self.quiet_mode = quiet
+        self.verbose_mode = False
 
         # 尝试从 agent_config 加载持久化的 quiet_mode
         try:
@@ -69,6 +71,9 @@ class TerminalREPL:
                 self.current_mode = mode
         except Exception:
             pass  # 项目不存在或加载失败，使用默认值
+
+        # 初始化 loguru 日志级别
+        self._configure_logger()
 
         # 创建 Agent 核心，注入 UI 回调
         self.agent = AgentLoop(
@@ -204,9 +209,13 @@ class TerminalREPL:
                 self._stop_autonomous()
                 continue
             if user_input.lower() in ("/quiet", "/q"):
+                self.verbose_mode = False
+                self.quiet_mode = True
                 self._set_quiet_mode(True)
                 continue
             if user_input.lower() in ("/verbose", "/v"):
+                self.quiet_mode = False
+                self.verbose_mode = True
                 self._set_quiet_mode(False)
                 continue
 
@@ -381,10 +390,26 @@ class TerminalREPL:
         else:
             self.console.print(f"[{WARN}]当前不在自主模式中[/{WARN}]")
 
+    def _configure_logger(self) -> None:
+        """配置 loguru 日志级别：安静 → WARNING，默认 → INFO，详细 → DEBUG"""
+        logger.remove()
+        if self.quiet_mode:
+            level = "WARNING"
+            color = "red"
+        elif self.verbose_mode:
+            level = "DEBUG"
+            color = "green"
+        else:
+            level = "INFO"
+            color = "green"
+        logger.add(sys.stderr, level=level,
+                   format=f"<{color}>{{time:YYYY-MM-DD HH:mm:ss.SSS}}</{color}> | <level>{{level: <8}}</level> | <level>{{message}}</level>")
+
     def _set_quiet_mode(self, enabled: bool) -> None:
         """切换安静模式"""
         self.quiet_mode = enabled
         self.agent.set_quiet_mode(enabled)
+        self._configure_logger()
 
         # 持久化到 agent_config
         try:
