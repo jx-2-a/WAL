@@ -235,6 +235,14 @@ class TerminalREPL:
                     try:
                         self.console.print(f"\n[dim]── 自主继续 ──[/dim]")
                         self._do_agent_turn("继续")
+                        # 检查是否应该自动停止（两道防线）
+                        stop_reason = self.agent.check_auto_stop_reason()
+                        if stop_reason:
+                            self.console.print(
+                                f"\n[{SUCCESS}]✓ {stop_reason}[/{SUCCESS}]"
+                            )
+                            self._stop_autonomous()
+                            break
                     except KeyboardInterrupt:
                         # Ctrl+C 在 API 调用期间仍可强制中断
                         self.console.print(
@@ -376,6 +384,7 @@ class TerminalREPL:
         """
         msg = self.agent.switch_mode(AgentMode.AUTONOMOUS)
         self.current_mode = AgentMode.AUTONOMOUS
+        self.agent.reset_auto_counters()
         try:
             self.console.print(f"\n[{AUTO_COLOR}]{msg}[/{AUTO_COLOR}]")
         except UnicodeEncodeError:

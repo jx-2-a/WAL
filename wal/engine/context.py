@@ -12,6 +12,7 @@
 
 from pathlib import Path
 from typing import Optional
+from loguru import logger
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -203,7 +204,9 @@ class ContextManager:
 
         # 2. 找出最近 N 轮（一轮 = user → assistant + tools ... 直到下个 user）
         recent = self._extract_recent_rounds(non_system, self.window_rounds)
-        old = [m for m in non_system if m not in recent]
+        # 用 id 集合做 O(1) 成员判断，避免 dict 比较 O(n²)
+        recent_ids = {id(m) for m in recent}
+        old = [m for m in non_system if id(m) not in recent_ids]
 
         # 3. 压缩旧消息
         if old:
@@ -226,12 +229,34 @@ class ContextManager:
 
         managed.extend(recent)
 
-        # 5. 如果仍超限，压缩摘要
+        # 5. 如果仍超限，逐级裁减
         total_tokens = self.counter.count_messages(managed)
-        while total_tokens > self.max_tokens and self._running_summary:
-            self._running_summary = self._compress_summary(self._running_summary)
+
+        # 5a. 先压缩摘要（带迭代上限，防止死循环）
+        _compress_iters = 0
+        while total_tokens > self.max_tokens and self._running_summary and _compress_iters < 20:
+            _compress_iters += 1
+            new_summary = self._compress_summary(self._running_summary)
+            if len(new_summary) >= len(self._running_summary):
+                # 压缩不再有效，丢弃摘要
+                self._running_summary = ""
+                self._summary_tokens = 0
+                break
+            self._running_summary = new_summary
             self._summary_tokens = self.counter.count(self._running_summary)
             # 重建
+            managed = list(system_msgs)
+            if self._running_summary:
+                managed.append({
+                    "role": "system",
+                    "content": f"[对话历史摘要]\n{self._running_summary}",
+                })
+            managed.extend(recent)
+            total_tokens = self.counter.count_messages(managed)
+
+        # 5b. 摘要已耗尽仍超限 → 裁剪最旧的 recent 消息
+        while total_tokens > self.max_tokens and len(recent) > 2:
+            recent = recent[2:]  # 丢弃最旧的一对 user+assistant
             managed = list(system_msgs)
             if self._running_summary:
                 managed.append({

@@ -19,6 +19,7 @@ from typing import Callable, Optional
 from ..engine.client import LLMClient
 from ..engine.context import ContextManager, truncate_tool_result
 from ..engine.utils import should_strip_emoji, strip_emoji
+from loguru import logger
 from .tool_defs import TOOL_DEFINITIONS, execute_tool
 from .plan_tool_defs import PLAN_TOOL_DEFINITIONS, execute_plan_tool
 from .auto_tool_defs import AUTO_TOOL_DEFINITIONS, execute_auto_tool
@@ -169,6 +170,11 @@ class AgentLoop:
 
         # 追踪当前轮是否用了 write_scene_content（防止正文丢失）
         self._used_write_scene = False
+
+        # 自主模式停止检测
+        self._had_tool_calls = False      # 本轮是否调用了任何工具
+        self._auto_idle_count = 0         # 连续无工具调用轮次
+        self._MAX_AUTO_IDLE = 3           # 连续空闲轮次上限
 
         # 对话历史
         self.messages: list[dict] = []
@@ -410,6 +416,7 @@ class AgentLoop:
 
         # 重置本轮追踪
         self._used_write_scene = False
+        self._had_tool_calls = False
 
         # 2. 上下文窗口管理 + RAG 检索注入
         self.messages = self.context_manager.manage(self.messages)
@@ -470,6 +477,7 @@ class AgentLoop:
 
         # 重置本轮追踪
         self._used_write_scene = False
+        self._had_tool_calls = False
 
         # 上下文窗口管理 + RAG 检索注入
         self.messages = self.context_manager.manage(self.messages)
@@ -543,6 +551,43 @@ class AgentLoop:
         return self.messages
 
     # ============================================================
+    #  自主模式停止检测
+    # ============================================================
+
+    def reset_auto_counters(self) -> None:
+        """重置自主模式计数器（进入自主模式时调用）"""
+        self._auto_idle_count = 0
+        self._had_tool_calls = False
+
+    def check_auto_stop_reason(self) -> str | None:
+        """检查自主模式是否应自动停止。返回停止原因字符串，或 None 表示继续。
+
+        两道防线：
+        1. auto_running 标记 — LLM 调用了 end_auto_session
+        2. 连续空闲检测 — 连续 N 轮无工具调用，判定任务已完成/卡住
+        """
+        # 防线 1：检查 auto_running 标记（LLM 主动结束会话）
+        try:
+            from wal.core.autonomous import AutoManager
+            am = AutoManager(self.project_dir)
+            is_running = am.repo.get_config("auto_running", "true")
+            if is_running == "false":
+                return "自主会话已结束（Agent 调用了 end_auto_session）"
+        except Exception:
+            pass
+
+        # 防线 2：连续空闲轮次检测
+        if not self._had_tool_calls:
+            self._auto_idle_count += 1
+        else:
+            self._auto_idle_count = 0
+
+        if self._auto_idle_count >= self._MAX_AUTO_IDLE:
+            return f"连续 {self._auto_idle_count} 轮无工具调用，任务可能已完成，自动停止"
+
+        return None
+
+    # ============================================================
     #  内部方法
     # ============================================================
 
@@ -553,6 +598,9 @@ class AgentLoop:
             tool_calls: LLM 返回的工具调用列表
             content: LLM 同时附带的文本（如"让我先查看上下文..."），不会丢弃
         """
+        # 标记本轮有工具调用（自主模式停止检测用）
+        self._had_tool_calls = True
+
         # 1. 添加 assistant 消息（保留附带文本，不静默丢弃）
         self.messages.append({
             "role": "assistant",
