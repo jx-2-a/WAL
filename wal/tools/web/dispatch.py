@@ -42,6 +42,7 @@ def execute_web_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         ),
         "encyclopedia_search": lambda: encyclopedia_search(
             query=arguments["query"],
+            project_name=project_name,
             language=arguments.get("language", "zh-CN"),
             max_length=arguments.get("max_length", 8000),
             skip_cache=arguments.get("skip_cache", False),

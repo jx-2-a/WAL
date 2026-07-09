@@ -752,8 +752,10 @@ _WIKI_SITE = {
     "en": "https://en.wikipedia.org",
 }
 
-# 百科缓存文件路径
-_CACHE_PATH = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))) / ".encyclopedia_cache.json"
+def _cache_dir(project_name: str) -> Path:
+    """获取项目缓存目录"""
+    base = Path(os.environ.get("WAL_PROJECTS", "projects"))
+    return base / project_name
 
 
 def _get_baidu_api_key() -> str | None:
@@ -1060,21 +1062,24 @@ def _enc_wikipedia_en(query: str, max_length: int = 8000) -> dict:
 #  本地缓存 — 优先本地，减少重复联网
 # ============================================================
 
-def _load_encyclopedia_cache() -> dict:
+def _load_encyclopedia_cache(project_name: str) -> dict:
     """加载百科缓存"""
-    if _CACHE_PATH.exists():
+    cache_path = _cache_dir(project_name) / ".encyclopedia_cache.json"
+    if cache_path.exists():
         try:
-            with open(_CACHE_PATH, "r", encoding="utf-8") as f:
+            with open(cache_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.warning(f"百科缓存读取失败: {e}")
     return {}
 
 
-def _save_encyclopedia_cache(cache: dict):
+def _save_encyclopedia_cache(project_name: str, cache: dict):
     """保存百科缓存"""
+    cache_path = _cache_dir(project_name) / ".encyclopedia_cache.json"
     try:
-        with open(_CACHE_PATH, "w", encoding="utf-8") as f:
+        _cache_dir(project_name).mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.warning(f"百科缓存保存失败: {e}")
@@ -1086,7 +1091,8 @@ def _cache_key(query: str, language: str) -> str:
     return f"{q}|{language}"
 
 
-def encyclopedia_search(query: str, language: str = "zh-CN",
+def encyclopedia_search(query: str, project_name: str = "",
+                        language: str = "zh-CN",
                         max_length: int = 8000,
                         skip_cache: bool = False,
                         start_level: int = 0) -> dict:
@@ -1125,7 +1131,7 @@ def encyclopedia_search(query: str, language: str = "zh-CN",
     """
     # ---- 检查缓存（缓存不受 start_level 影响） ----
     if not skip_cache:
-        cache = _load_encyclopedia_cache()
+        cache = _load_encyclopedia_cache(project_name)
         key = _cache_key(query, language)
         if key in cache:
             cached = cache[key]
@@ -1163,7 +1169,7 @@ def encyclopedia_search(query: str, language: str = "zh-CN",
         if has_content and not is_disambig:
             result["from_cache"] = False
             result["start_level"] = start_level
-            _save_to_cache(query, language, result)
+            _save_to_cache(project_name, query, language, result)
             return result
 
         if is_disambig:
@@ -1180,10 +1186,10 @@ def encyclopedia_search(query: str, language: str = "zh-CN",
     }
 
 
-def _save_to_cache(query: str, language: str, result: dict):
-    """将成功的百科结果保存到本地缓存"""
+def _save_to_cache(project_name: str, query: str, language: str, result: dict):
+    """将成功的百科结果保存到项目本地缓存"""
     try:
-        cache = _load_encyclopedia_cache()
+        cache = _load_encyclopedia_cache(project_name)
         key = _cache_key(query, language)
         cache[key] = {
             "source": result.get("source"),
@@ -1195,7 +1201,7 @@ def _save_to_cache(query: str, language: str, result: dict):
             "search_candidates": result.get("search_candidates"),
             "saved_at": time.time(),
         }
-        _save_encyclopedia_cache(cache)
+        _save_encyclopedia_cache(project_name, cache)
         logger.info(f"[百科缓存] 已保存: {query} → {result.get('source')}")
     except Exception as e:
         logger.warning(f"[百科缓存] 保存失败: {e}")
