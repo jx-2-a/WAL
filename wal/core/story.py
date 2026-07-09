@@ -787,10 +787,13 @@ class StoryManager:
         ch = self.get_chapter(chapter_number)
         if not ch:
             return ""
-        parts = [
-            f"第{ch.number}章 {ch.title}",
-            "",
-        ]
+        parts = []
+        if ch.title:
+            parts.append(f"{ch.number} {ch.title}")
+            parts.append("")
+        else:
+            parts.append(str(ch.number))
+            parts.append("")
         # 场景内容：多场景用分割线隔开，不写"场景N"（避免出戏）
         scenes_with_content = [sc for sc in ch.scenes if sc.content.strip()]
         multi = len(scenes_with_content) > 1
