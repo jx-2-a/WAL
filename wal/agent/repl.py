@@ -41,7 +41,7 @@ class TerminalREPL:
     """交互式终端 Agent — WAL 的默认 CLI 界面"""
 
     def __init__(self, project_name: str, api_key: str | None = None,
-                 model: str = "deepseek-chat", base_url: str = "https://api.deepseek.com/v1",
+                 model: str = "deepseek-v4-pro", base_url: str = "https://api.deepseek.com/v1",
                  mode: AgentMode = AgentMode.WRITING, quiet: bool = False):
         self.project_name = project_name
         self.console = Console()

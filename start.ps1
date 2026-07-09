@@ -9,7 +9,7 @@
 
 param(
     [string]$ProjectName = "",
-    [string]$Model = "deepseek-chat",
+    [string]$Model = "deepseek-v4-pro",
     [string]$BaseUrl = "https://api.deepseek.com/v1",
     [switch]$Quiet,
     [ValidateSet("writing", "planning", "autonomous")]
@@ -56,7 +56,7 @@ WAL 小说写作 Agent 启动器
 
 参数:
   -ProjectName    小说项目名（不填则交互选择）
-  -Model          LLM 模型 (默认: deepseek-chat)
+  -Model          LLM 模型 (默认: deepseek-v4-pro)
   -BaseUrl        API 地址 (默认: https://api.deepseek.com/v1)
   -Quiet          安静模式启动（隐藏工具调用详情）
   -Mode           Agent 启动模式: writing / planning / autonomous (默认: writing)

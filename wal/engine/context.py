@@ -254,9 +254,20 @@ class ContextManager:
             managed.extend(recent)
             total_tokens = self.counter.count_messages(managed)
 
-        # 5b. 摘要已耗尽仍超限 → 裁剪最旧的 recent 消息
+        # 5b. 摘要已耗尽仍超限 → 裁剪到下一个 user 边界（保证 tool_calls 配对完整）
         while total_tokens > self.max_tokens and len(recent) > 2:
-            recent = recent[2:]  # 丢弃最旧的一对 user+assistant
+            # 找下一个 user 消息作为安全裁剪点
+            cut_to = None
+            for i in range(1, len(recent)):
+                if recent[i].get("role") == "user":
+                    cut_to = i
+                    break
+            if cut_to is None or cut_to >= len(recent) - 1:
+                break  # 没有安全裁剪点，放弃
+            recent = recent[cut_to:]
+            # 安全检查：清除开头可能的孤儿 tool 消息
+            while recent and recent[0].get("role") == "tool":
+                recent = recent[1:]
             managed = list(system_msgs)
             if self._running_summary:
                 managed.append({

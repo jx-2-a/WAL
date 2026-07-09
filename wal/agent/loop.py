@@ -125,7 +125,7 @@ class AgentLoop:
         self,
         project_name: str,
         api_key: str | None = None,
-        model: str = "deepseek-chat",
+        model: str = "deepseek-v4-pro",
         base_url: str = "https://api.deepseek.com/v1",
         mode: AgentMode = AgentMode.WRITING,
         quiet_mode: bool = False,
