@@ -1,0 +1,51 @@
+# Git 自身
+.gitignore
+CLAUDE.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+env/
+d:/PyVenv/WAL/
+
+# Claude Code (internal)
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# pytest
+.pytest_cache/
+Dur/
+
+# Test output
+test_output/
+
+# 个人笔记 — 不入库
+Ctrl/
+Mem/
+
+# Project data — 用户数据，完全不入库
+projects/
+
+# API密钥 — 绝对不能入库
+.env
+*.env
+!*.env.example
+/API
+
+# OS
+.DS_Store
+Thumbs.db
+.encyclopedia_cache.json

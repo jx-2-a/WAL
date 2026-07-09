@@ -45,6 +45,7 @@ def execute_web_tool(tool_name: str, arguments: dict, project_name: str) -> str:
             language=arguments.get("language", "zh-CN"),
             max_length=arguments.get("max_length", 8000),
             skip_cache=arguments.get("skip_cache", False),
+            start_level=arguments.get("start_level", 0),
         ),
     }
 

@@ -1088,7 +1088,8 @@ def _cache_key(query: str, language: str) -> str:
 
 def encyclopedia_search(query: str, language: str = "zh-CN",
                         max_length: int = 8000,
-                        skip_cache: bool = False) -> dict:
+                        skip_cache: bool = False,
+                        start_level: int = 0) -> dict:
     """搜索百科词条，返回正文内容（而非网页搜索的摘要链接）
 
     本工具与 web_search 的区别：
@@ -1101,7 +1102,12 @@ def encyclopedia_search(query: str, language: str = "zh-CN",
       - 查最新新闻、多方观点、非百科内容 → web_search
       - 不确定时两个都调用，互相补充
 
-    优先级：Wikipedia 中文 → 360百科 → 百度百科 API（仅摘要）→ Wikipedia 英文
+    优先级链（默认从 0 开始全链尝试）：
+      0: Wikipedia中文 → 360百科 → 百度百科 → Wikipedia英文
+      1: 360百科 → 百度百科 → Wikipedia英文
+      2: 百度百科 → Wikipedia英文
+      3: Wikipedia英文 单独
+
     结果自动缓存到本地，下次同词条优先读缓存（不消耗网络请求）。
 
     Args:
@@ -1109,12 +1115,15 @@ def encyclopedia_search(query: str, language: str = "zh-CN",
         language: 语言偏好（zh-CN / en），默认 zh-CN
         max_length: 返回最大字符数，默认 8000
         skip_cache: 跳过缓存强制联网搜索，默认 False
+        start_level: 从第几级开始尝试（0-3）。Wikipedia 经常返回不相关词条（如搜"闲章"返回"藏书印"），
+                     如果预判 Wikipedia 无独立词条，设 start_level=1 跳过 Wikipedia 直接查 360 百科
 
     Returns:
         {"source": "wikipedia_zh|360baike|baidu_baike|wikipedia_en",
-         "title": "...", "url": "...", "content": "...", "from_cache": bool, ...}
+         "title": "...", "url": "...", "content": "...", "from_cache": bool,
+         "start_level": int, "tried": [...]}
     """
-    # ---- 检查缓存 ----
+    # ---- 检查缓存（缓存不受 start_level 影响） ----
     if not skip_cache:
         cache = _load_encyclopedia_cache()
         key = _cache_key(query, language)
@@ -1124,55 +1133,49 @@ def encyclopedia_search(query: str, language: str = "zh-CN",
             cached["from_cache"] = True
             return cached
 
+    SOURCES = [
+        ("wikipedia_zh", _enc_wikipedia_zh, "Wikipedia 中文"),
+        ("360baike", _enc_360baike, "360百科"),
+        ("baidu_baike", _enc_baidu_baike, "百度百科 API"),
+        ("wikipedia_en", _enc_wikipedia_en, "Wikipedia 英文"),
+    ]
+
     is_english = _is_english_query(query)
     tried: list[str] = []
     result: dict = {}
 
-    # ---- Priority 1: Wikipedia 中文 (MediaWiki API) ----
-    logger.info(f"[百科] 1/4 Wikipedia 中文: {query}")
-    result = _enc_wikipedia_zh(query, max_length=max_length)
-    tried.append("wikipedia_zh")
-    if "content" in result and result.get("content_length", 0) > 100:
-        result["from_cache"] = False
-        _save_to_cache(query, language, result)
-        return result
-    logger.info(f"[百科] Wikipedia 中文失败: {result.get('error', '内容过短')}")
+    for idx, (source_name, source_func, source_label) in enumerate(SOURCES):
+        # 根据 start_level 跳过前面的源
+        if idx < start_level:
+            continue
+        # Wikipedia 英文仅对英文查询或有明确需求时尝试
+        if source_name == "wikipedia_en" and not is_english and start_level < 3:
+            continue
 
-    # ---- Priority 2: 360百科 ----
-    logger.info(f"[百科] 2/4 360百科: {query}")
-    result = _enc_360baike(query, max_length=max_length)
-    tried.append("360baike")
-    if "content" in result and result.get("content_length", 0) > 100:
-        result["from_cache"] = False
-        _save_to_cache(query, language, result)
-        return result
-    logger.info("[百科] 360百科失败")
+        logger.info(f"[百科] {idx+1}/4 {source_label}: {query}")
+        result = source_func(query, max_length=max_length)
+        tried.append(source_name)
 
-    # ---- Priority 3: 百度百科 API（仅摘要） ----
-    logger.info(f"[百科] 3/4 百度百科 API: {query}")
-    result = _enc_baidu_baike(query, max_length=max_length)
-    tried.append("baidu_baike")
-    if "content" in result and result.get("content_length", 0) > 100:
-        result["from_cache"] = False
-        _save_to_cache(query, language, result)
-        return result
-    logger.info("[百科] 百度百科 API 失败")
+        # 检查结果有效性
+        has_content = "content" in result and result.get("content_length", 0) > 100
+        is_disambig = result.get("is_disambiguation", False)
 
-    # ---- Priority 4: Wikipedia 英文（仅英文查询） ----
-    if is_english:
-        logger.info(f"[百科] 4/4 Wikipedia 英文: {query}")
-        result = _enc_wikipedia_en(query, max_length=max_length)
-        tried.append("wikipedia_en")
-        if "content" in result and result.get("content_length", 0) > 100:
+        if has_content and not is_disambig:
             result["from_cache"] = False
+            result["start_level"] = start_level
             _save_to_cache(query, language, result)
             return result
-        logger.info("[百科] Wikipedia 英文失败")
+
+        if is_disambig:
+            logger.info(f"[百科] {source_label} 返回消歧义页，继续下一级")
+        else:
+            logger.info(f"[百科] {source_label} 失败: {result.get('error', '内容过短')}")
 
     return {
         "error": "所有百科来源均未找到该词条",
         "query": query,
         "tried": tried,
+        "start_level": start_level,
         "hint": f'试试 web_search(query="{query}") 搜索网页获取信息',
     }
 

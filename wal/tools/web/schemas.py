@@ -109,8 +109,12 @@ WEB_TOOL_DEFINITIONS = [
                 "  2. 需要多方观点和来源\n"
                 "  3. 百科覆盖不到的小众话题\n"
                 "  4. 不确定时两个都调用，互相补充\n\n"
-                "优先级：Wikipedia 中文 → 360百科 → 百度百科（仅摘要）→ Wikipedia 英文\n"
-                "结果自动本地缓存，同词条再次查询直接返回缓存（不消耗网络请求）。"
+                "优先级链（默认 start_level=0 全链尝试）：\n"
+                "  0: Wikipedia中文 → 360百科 → 百度百科 → Wikipedia英文（默认）\n"
+                '  1: 360百科 → 百度百科 → Wikipedia英文（预判 Wikipedia 无独立词条时用，如"闲章"）\n'
+                "  2: 百度百科 → Wikipedia英文\n"
+                "  3: 仅 Wikipedia 英文\n"
+                "结果自动本地缓存，同词条再次查询直接返回缓存（不消耗网络请求）。\n"
                 "费用：Wikipedia 免费（MediaWiki API），百度百科 50次/天（AppBuilder API），360百科免费。"
             ),
             "parameters": {
@@ -131,6 +135,15 @@ WEB_TOOL_DEFINITIONS = [
                     "skip_cache": {
                         "type": "boolean",
                         "description": "是否跳过本地缓存强制联网搜索。默认 false（优先读缓存）。当之前的缓存结果不理想时设为 true",
+                    },
+                    "start_level": {
+                        "type": "integer",
+                        "description": (
+                            "从第几级开始尝试（0-3）。Wikipedia 经常对中文小众词条返回不相关结果"
+                            "（如搜'闲章'返回'藏书印'），如果预判 Wikipedia 无独立词条，"
+                            "设 start_level=1 跳过 Wikipedia 直接从 360 百科查起。"
+                            "默认 0（全链尝试）。"
+                        ),
                     },
                 },
                 "required": ["query"],
