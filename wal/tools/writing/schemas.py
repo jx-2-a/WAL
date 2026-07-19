@@ -958,6 +958,23 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "set_temperature",
+            "description": "设置或查看 LLM 模型的随机性/创造性（temperature）。范围 0.0 ~ 2.0，默认 0.7。值越高回复越有创意和多样性，值越低回复越确定和一致。不传参数则查看当前值。适合场景：需要严谨逻辑时降低（如 0.1~0.3），需要创意灵感时提高（如 1.0~1.5）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "temperature": {
+                        "type": "number",
+                        "description": "temperature 值，范围 0.0 ~ 2.0。不传则查看当前 temperature。",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "save_agent_memory",
             "description": "保存一条 key-value 持久记忆。用于记录重要的讨论结论、用户偏好、写作决策等，重启后依然存在。记得定期用此工具保存关键上下文，防止对话压缩丢失。",
             "parameters": {
@@ -1254,6 +1271,35 @@ TOOL_DEFINITIONS = [
                     },
                 },
                 "required": ["doc_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "读取指定路径的文件内容（仅限文本文件）。可以读取项目目录下的参考文档、笔记、配置文件等。支持指定起始行和读取行数限制。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "文件的绝对路径或相对于当前工作目录的路径",
+                    },
+                    "encoding": {
+                        "type": "string",
+                        "description": "文件编码，默认 utf-8。可指定 gbk、gb2312 等",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "从第几行开始读取（行号从1开始），默认从第1行开始",
+                    },
+                    "line_limit": {
+                        "type": "integer",
+                        "description": "最多读取多少行，默认读取全部。对大文件建议设置此参数",
+                    },
+                },
+                "required": ["path"],
             },
         },
     },

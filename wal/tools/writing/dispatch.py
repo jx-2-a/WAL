@@ -55,6 +55,7 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         update_foreshadowing_tool,
         get_chapter_artifacts,
         delete_scene_tool,
+        read_file,
     )
     from wal.tools.shared.memory import save_agent_memory, get_agent_memory
     from wal.core import StoryManager, CharacterManager
@@ -231,6 +232,7 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         ),
         # 跨模式工具（预分派在 core.py 处理，不会到这里，但保留映射以防回退）
         "switch_mode": lambda: f"[Internal] switch_mode is handled by AgentLoop pre-dispatch",
+        "set_temperature": lambda: f"[Internal] set_temperature is handled by AgentLoop pre-dispatch",
         # 持久记忆工具
         "save_agent_memory": lambda: save_agent_memory(
             project_name,
@@ -251,6 +253,13 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         "list_custom_documents": lambda: _list_custom_documents(project_name, arguments),
         "update_custom_document": lambda: _update_custom_document(project_name, arguments),
         "delete_custom_document": lambda: _delete_custom_document(project_name, arguments),
+        # 通用文件读取
+        "read_file": lambda: read_file(
+            arguments["path"],
+            arguments.get("encoding", "utf-8"),
+            arguments.get("start_line", 0),
+            arguments.get("line_limit", 0),
+        ),
     }
 
     func = tool_map.get(tool_name)

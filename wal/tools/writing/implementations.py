@@ -764,3 +764,113 @@ def delete_scene_tool(project_name: str, chapter_number: int,
         return {"deleted": True, "chapter_number": chapter_number,
                 "scene_index": scene_index, "scene_id": scene_id}
     return {"error": "删除失败"}
+
+
+# ============================================================
+# 通用文件读取工具
+# ============================================================
+
+def read_file(path: str, encoding: str = "utf-8",
+              start_line: int = 0, line_limit: int = 0) -> str:
+    """读取指定路径的文件内容（仅限文本文件）
+
+    Args:
+        path: 文件的绝对路径或相对路径
+        encoding: 文件编码，默认 utf-8
+        start_line: 起始行号（从1开始），0 表示从第1行开始
+        line_limit: 最多读取行数，0 表示不限制
+
+    Returns:
+        文件内容字符串，或错误信息
+    """
+    from pathlib import Path
+
+    file_path = Path(path)
+
+    # 路径规范化
+    if not file_path.is_absolute():
+        file_path = Path.cwd() / file_path
+
+    try:
+        file_path = file_path.resolve()
+    except Exception:
+        return f"[Error] 无法解析路径：{path}"
+
+    # 检查文件是否存在
+    if not file_path.exists():
+        return f"[Error] 文件不存在：{file_path}"
+
+    # 检查是否为目录
+    if file_path.is_dir():
+        return f"[Error] 指定路径是一个目录，而非文件：{file_path}\n目录内容：\n" + \
+               "\n".join(f"  {'[DIR]' if p.is_dir() else '[FILE]'} {p.name}"
+                         for p in sorted(file_path.iterdir())[:50])
+
+    # 检查文件大小（超过 10MB 警告）
+    try:
+        size_mb = file_path.stat().st_size / (1024 * 1024)
+        if size_mb > 10:
+            return f"[Error] 文件过大（{size_mb:.1f} MB），超过 10 MB 限制。请使用 start_line/line_limit 分段读取"
+    except Exception:
+        pass
+
+    # 读取文件
+    try:
+        with open(file_path, "r", encoding=encoding) as f:
+            lines = f.readlines()
+    except UnicodeDecodeError:
+        # 尝试常见编码
+        for fallback_enc in ["gbk", "gb2312", "latin-1"]:
+            try:
+                with open(file_path, "r", encoding=fallback_enc) as f:
+                    lines = f.readlines()
+                encoding = fallback_enc  # 记录实际使用的编码
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        else:
+            return f"[Error] 无法解码文件 {file_path.name}，尝试了 utf-8 / gbk / gb2312 / latin-1 均失败。文件可能是二进制格式"
+    except PermissionError:
+        return f"[Error] 没有权限读取文件：{file_path}"
+    except Exception as e:
+        return f"[Error] 读取文件失败：{e}"
+
+    total_lines = len(lines)
+
+    # 行范围处理
+    if start_line > 0:
+        start_idx = start_line - 1
+    else:
+        start_idx = 0
+
+    if line_limit > 0:
+        end_idx = min(start_idx + line_limit, total_lines)
+    else:
+        end_idx = total_lines
+
+    # 边界检查
+    if start_idx >= total_lines:
+        return f"[Error] 起始行 {start_line} 超出文件总行数 {total_lines}"
+
+    selected = lines[start_idx:end_idx]
+
+    # 行号格式化
+    result_lines = []
+    for i, line in enumerate(selected, start=start_idx + 1):
+        result_lines.append(f"{i:6d}|{line.rstrip()}")
+
+    result = "\n".join(result_lines)
+
+    # 添加摘要头
+    header = f"# 文件：{file_path.name}\n"
+    header += f"# 路径：{file_path}\n"
+    header += f"# 编码：{encoding} | 总行数：{total_lines}\n"
+    if start_line > 0 or line_limit > 0:
+        actual_start = start_idx + 1
+        actual_end = actual_start + len(selected) - 1
+        header += f"# 读取范围：第 {actual_start}-{actual_end} 行（共 {len(selected)} 行）\n"
+    else:
+        header += f"# 已读取全部 {len(selected)} 行\n"
+    header += f"{'─' * 60}\n"
+
+    return header + result

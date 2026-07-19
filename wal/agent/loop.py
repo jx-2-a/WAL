@@ -129,6 +129,7 @@ class AgentLoop:
         base_url: str = "https://api.deepseek.com/v1",
         mode: AgentMode = AgentMode.WRITING,
         quiet_mode: bool = False,
+        temperature: float = 0.7,
         on_thinking: Callable[[str], None] | None = None,
         on_tool_call: Callable[[str, dict, str], None] | None = None,
         on_response: Callable[[str], None] | None = None,
@@ -142,6 +143,7 @@ class AgentLoop:
             base_url: API 地址
             mode: Agent 运行模式 (writing / planning / autonomous)
             quiet_mode: 安静模式 — True 时抑制工具调用回调通知
+            temperature: 模型随机性/创造性 (0.0~2.0)，默认 0.7。越高越有创意，越低越确定
             on_thinking: 可选回调 — Agent 开始思考时调用
             on_tool_call: 可选回调 — 工具被调用时调用 (tool_name, args, result)
             on_response: 可选回调 — Agent 生成回复文本时调用
@@ -151,6 +153,7 @@ class AgentLoop:
         self.llm = LLMClient(api_key=api_key, model=model, base_url=base_url)
         self.mode = mode
         self.quiet_mode = quiet_mode
+        self.temperature = temperature
 
         # 根据模式选择工具集
         self._update_tools_for_mode()
@@ -257,6 +260,7 @@ class AgentLoop:
                 "search_story_index", "generate_chapter_summary", "quick_review",
                 "export_outline", "suggest_next_scene",
                 "get_custom_document", "list_custom_documents",
+                "read_file",
             }
             plan_names = {t["function"]["name"] for t in PLAN_TOOL_DEFINITIONS}
             web_names = {t["function"]["name"] for t in WEB_TOOL_DEFINITIONS}
@@ -340,6 +344,27 @@ class AgentLoop:
             return f"[Error] 无效模式 '{mode_str}'。可用模式：{valid}"
         msg = self.switch_mode(new_mode)
         return f"模式已切换：{msg}"
+
+    def _execute_set_temperature(self, args: dict) -> str:
+        """Agent 工具：设置/查看模型随机性（由 _handle_tool_calls 预分派调用）
+
+        不传 temperature 参数时返回当前值。
+        temperature 范围：0.0 ~ 2.0，越高越有创意，越低越确定。
+        """
+        if "temperature" not in args or args["temperature"] is None:
+            return f"当前 temperature = {self.temperature}"
+
+        try:
+            temp = float(args["temperature"])
+        except (TypeError, ValueError):
+            return f"[Error] temperature 必须是数字，收到：{args['temperature']}"
+
+        if temp < 0.0 or temp > 2.0:
+            return f"[Error] temperature 范围是 0.0 ~ 2.0，收到：{temp}"
+
+        old = self.temperature
+        self.temperature = temp
+        return f"temperature 已从 {old} 调整为 {temp}"
 
     # ============================================================
     #  对话持久化
@@ -432,7 +457,7 @@ class AgentLoop:
 
             # 调用 LLM
             response = self.llm.chat_with_tools(
-                self.messages, self.tools, temperature=0.7, max_tokens=16384
+                self.messages, self.tools, temperature=self.temperature, max_tokens=16384
             )
 
             tool_calls = response.get("tool_calls")
@@ -458,7 +483,7 @@ class AgentLoop:
 
         # 超时：强制 LLM 总结
         self.messages.append({"role": "user", "content": "请根据以上工具调用结果，给出最终回复。"})
-        final = self.llm.chat_with_tools(self.messages, self.tools, temperature=0.7, max_tokens=16384)
+        final = self.llm.chat_with_tools(self.messages, self.tools, temperature=self.temperature, max_tokens=16384)
         final_content = final.get("content", "（无法生成回复）")
         self.messages.append({"role": "assistant", "content": final_content})
 
@@ -494,7 +519,7 @@ class AgentLoop:
             full_content = ""
             tool_calls_result = None
 
-            for event in self.llm.chat_stream(self.messages, self.tools, temperature=0.7, max_tokens=16384):
+            for event in self.llm.chat_stream(self.messages, self.tools, temperature=self.temperature, max_tokens=16384):
                 if event["type"] == "text":
                     full_content += event["text"]
                     if self.on_response:
@@ -632,6 +657,8 @@ class AgentLoop:
             # 跨模式工具：预分派（不经过模式执行器）
             if tool_name == "switch_mode":
                 result = self._execute_switch_mode(args)
+            elif tool_name == "set_temperature":
+                result = self._execute_set_temperature(args)
             # 联网搜索工具：跨模式可用（Planning + Writing）
             elif tool_name in ("web_search", "web_fetch", "suggest_alternative_urls", "encyclopedia_search"):
                 result = execute_web_tool(tool_name, args, self.project_name)
