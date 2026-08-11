@@ -35,6 +35,7 @@ class Chapter(BaseModel):
     title: str = Field(default="", description="章节标题")
     status: str = Field(default="draft", description="状态: draft/writing/done")
     summary: str = Field(default="", description="本章摘要")
+    anchor: str = Field(default="", description="本章锚点（规划侧写入：本章应写什么，防跑偏对照依据）")
     word_count_target: int = Field(default=3000, description="目标字数")
     scenes: list[Scene] = Field(default_factory=list, description="场景列表")
     plot_points_involved: list[str] = Field(default_factory=list, description="涉及的情节点ID")

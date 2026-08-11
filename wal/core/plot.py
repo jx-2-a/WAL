@@ -244,6 +244,43 @@ class PlotManager:
         self.repo.update_point_field(point_id, "chapter_assigned", chapter)
         return pp
 
+    def bind_plot_points_to_chapter(self, plot_id: str,
+                                    chapter: int, point_ids: list[str]) -> dict:
+        """批量把剧情线的若干情节点绑定到指定章节（进度绑定 P1）"""
+        bound = []
+        for pid in point_ids:
+            try:
+                pp = self.assign_plot_point(plot_id, pid, chapter)
+                bound.append({"point_id": pid, "title": pp.title,
+                              "chapter": chapter})
+            except ValueError as e:
+                return {"error": str(e)}
+        return {"bound": len(bound), "plot_id": plot_id, "chapter": chapter,
+                "points": bound}
+
+    def auto_advance_plot(self, chapter_number: int) -> dict:
+        """章节完成后自动推进：把 chapter_assigned==N 且未完成的情节点置为 done
+
+        set_chapter_status(done) 时自动调用（AgentLoop 钩子），
+        或由 LLM 手动调用。剧情线进度随之自动上涨。
+        """
+        self.load()
+        advanced = []
+        for pl in self._plots.values():
+            for pp in pl.plot_points:
+                if pp.chapter_assigned == chapter_number and pp.status != PlotPointStatus.DONE:
+                    pp.status = PlotPointStatus.DONE
+                    self.repo.update_point_field(pp.id, "status", "done")
+                    advanced.append({
+                        "plot_id": pl.id, "plot_name": pl.name,
+                        "point_id": pp.id, "point_title": pp.title,
+                        "line_progress_after": pl.progress_percent(),
+                    })
+        if not advanced:
+            return {"advanced": 0, "message": f"第{chapter_number}章没有绑定的待推进情节点"}
+        return {"advanced": len(advanced), "chapter_number": chapter_number,
+                "points": advanced}
+
     def _get_plot_point(self, plot_id: str, point_id: str) -> PlotPoint:
         pl = self.get_plot_line(plot_id)
         if not pl:

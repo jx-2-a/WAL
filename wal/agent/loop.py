@@ -73,6 +73,7 @@ SYSTEM_PROMPT = """你是 WAL 小说写作助手，一个专业的 AI 小说创�
 - **写作风格**：用 `set_writing_style` 查看或设定写作风格（如"文风简洁有力""轻松幽默"），设定后 AI 在所有模式下遵循此风格。不传参数即可查看当前风格
 - **数据清理**：有误创建的内容时，用 `delete_chapter`/`delete_scene`/`delete_volume`/`delete_plot_line`/`delete_character` 清理
 - **重写章节**：先用 `get_chapter_artifacts(chapter_number=N)` 查看该章状态绑定，删除后级联自动清理，重写后重新记录
+- **防跑偏**：写正文前用 `get_writing_mandate` 获取本章锚点/铁律/范围；章节号错了用 `move_chapter`/`renumber_chapters` 修正而不是删了重写；章节归属用 `assign_chapter_to_volume`；写完用 `check_chapter_alignment` 对照锚点，用 `check_iron_law` 自查设定红线；改人名/设定用 `global_replace` 全书替换；剧情线情节点用 `add_plot_point`+`assign_plot_point_to_chapter` 绑定章节后，`set_chapter_status(done)` 会自动推进
 - 每章结束后用 create_character_snapshot 记录角色状态
 - 定期调用 list_dangling_plots 确保没有遗漏支线
 - 如需检索已写内容，用 search_story_index 全文搜索
@@ -179,6 +180,9 @@ class AgentLoop:
         self._auto_idle_count = 0         # 连续无工具调用轮次
         self._MAX_AUTO_IDLE = 3           # 连续空闲轮次上限
 
+        # 防跑偏：是否已调用写作指令工具（get_writing_mandate / get_chapter_context）
+        self._mandate_loaded = False
+
         # 对话历史
         self.messages: list[dict] = []
 
@@ -212,6 +216,7 @@ class AgentLoop:
             base_prompt = SYSTEM_PROMPT
 
         # 附加项目概要
+        prompt = base_prompt
         try:
             from wal.agent.tools import get_story_status, list_plot_lines, list_dangling_plots
 
@@ -235,11 +240,25 @@ class AgentLoop:
                     for dp in dangling[:5]:
                         ctx += f"  - {dp.get('name', '?')} ({dp.get('progress', 0)}%)\n"
 
-                return _strip_if_needed(base_prompt + ctx)
+                prompt = base_prompt + ctx
         except Exception:
             pass
 
-        return _strip_if_needed(base_prompt)
+        # 防跑偏核心：自主模式自动注入写作指令（锚点/铁律/范围锁/必读文档）
+        if mode == AgentMode.AUTONOMOUS:
+            try:
+                from wal.core.mandate import MandateBuilder
+                mb = MandateBuilder(self.project_dir)
+                mandate_text = mb.format(mb.build(), doc_cap=2000, total_doc_cap=6000)
+                if mandate_text:
+                    prompt += (
+                        "\n\n## 📌 写作指令（自动模式强制依据，写每章前必读）\n"
+                        + mandate_text
+                    )
+            except Exception:
+                pass
+
+        return _strip_if_needed(prompt)
 
     def _inject_system_prompt(self) -> None:
         """注入系统提示词 + 当前项目信息（仅用于初始化，会替换整个 messages）"""
@@ -583,6 +602,7 @@ class AgentLoop:
         """重置自主模式计数器（进入自主模式时调用）"""
         self._auto_idle_count = 0
         self._had_tool_calls = False
+        self._mandate_loaded = False
         # 重置 auto_running 标记，避免上次会话的 end_auto_session
         # 导致本次刚一进入就立即触发停止
         try:
@@ -619,6 +639,117 @@ class AgentLoop:
             return f"连续 {self._auto_idle_count} 轮无工具调用，任务可能已完成，自动停止"
 
         return None
+
+    # ============================================================
+    #  防跑偏强制钩子（软强制 + 系统注入）
+    # ============================================================
+
+    def _apply_auto_enforcement(self, tool_name: str, args: dict, result) -> str:
+        """自主模式防跑偏钩子：在工具结果后附加检查段落
+
+        软强制策略：
+        - 进入自主模式时系统提示词已自动注入写作指令（硬性保证）
+        - 这里对关键工具做提示级检查，不硬拦截（避免卡死自主循环）
+        """
+        result_str = str(result)
+
+        if tool_name in ("get_writing_mandate", "get_chapter_context",
+                         "get_chapter_context_text"):
+            self._mandate_loaded = True
+
+        extra: list[str] = []
+        try:
+            if tool_name == "write_scene_content":
+                if not self._mandate_loaded:
+                    extra.append("⚠️ 尚未调用 get_writing_mandate 获取本章写作指令"
+                                 "（含锚点/铁律/范围锁）。写正文前请先获取，以防跑偏。")
+                ch = args.get("chapter", 0)
+                if ch:
+                    # 铁律扫描（写后自查）
+                    try:
+                        from wal.core.iron_law import IronLawManager
+                        im = IronLawManager(self.project_dir)
+                        violations = im.scan_chapter(int(ch))
+                        if violations:
+                            lines = [f"⛔ 铁律违规（{len(violations)}条）："]
+                            for v in violations[:5]:
+                                lines.append(f"  - {v['reason']}（严重度：{v['severity']}）")
+                            if len(violations) > 5:
+                                lines.append(f"  … 还有 {len(violations) - 5} 条，用 check_iron_law 查看全部")
+                            extra.append("\n".join(lines))
+                    except Exception:
+                        pass
+                    # 范围锁检查
+                    rc = self._range_check_message(int(ch))
+                    if rc:
+                        extra.append(rc)
+            elif tool_name == "set_chapter_status" and args.get("status") == "done":
+                ch = args.get("chapter_number", 0)
+                if ch:
+                    # 每章完成自动推进情节点（P1）
+                    try:
+                        from wal.tools.writing.implementations import auto_advance_plot
+                        adv = auto_advance_plot(self.project_name, int(ch))
+                        extra.append(f"✅ 第{ch}章完成：自动推进情节点 {adv.get('advanced', 0)} 个")
+                    except Exception:
+                        pass
+                    # 每章完成自动存档记忆（P1）
+                    self._auto_save_chapter_memory(int(ch))
+            elif tool_name == "add_chapter":
+                ch = args.get("chapter_number", 0) or args.get("_number", 0)
+                if ch:
+                    rc = self._range_check_message(int(ch))
+                    if rc:
+                        extra.append(rc)
+        except Exception:
+            pass
+
+        if extra:
+            result_str = result_str + "\n\n──── 防跑偏检查 ────\n" + "\n".join(extra)
+        return result_str
+
+    def _range_check_message(self, chapter_number: int) -> str:
+        """范围锁检查：当前卷范围内才放行，越界提示显式确认"""
+        try:
+            from wal.core.mandate import MandateBuilder
+            from wal.core import StoryManager
+            mb = MandateBuilder(self.project_dir)
+            cfg = mb.get_config("auto_current_volume", "")
+            if not cfg or not cfg.isdigit():
+                return ""
+            sm = StoryManager(self.project_dir)
+            sm.load_story()
+            vol_row = sm.repo.get_volume_by_number(int(cfg))
+            if not vol_row:
+                return ""
+            s = int(vol_row.get("chapter_start") or 0)
+            e = int(vol_row.get("chapter_end") or 0)
+            if s > 0 and e > 0 and not (s <= chapter_number <= e):
+                return (f"🚧 第{chapter_number}章超出当前卷（第{cfg}卷 {s}-{e}章）范围。"
+                        f"若确认进入下一卷，请显式调用 set_current_volume(卷号) 放行。")
+        except Exception:
+            pass
+        return ""
+
+    def _auto_save_chapter_memory(self, chapter_number: int) -> None:
+        """每章完成后自动保存进度记忆（防压缩丢失）"""
+        try:
+            from wal.tools.shared.memory import save_agent_memory, get_agent_memory
+            from wal.core import StoryManager
+            sm = StoryManager(self.project_dir)
+            sm.load_story()
+            ch = sm.get_chapter(chapter_number)
+            if not ch:
+                return
+            entry = (f"第{chapter_number}章《{ch.title}》已完成"
+                     f"（{ch.actual_word_count}字）")
+            existing = get_agent_memory(self.project_name, "auto_progress")
+            value = entry
+            if existing.get("found"):
+                value = (existing["value"] + "\n" + entry)[-3000:]
+            save_agent_memory(self.project_name, "auto_progress", value)
+        except Exception:
+            pass
 
     # ============================================================
     #  内部方法
@@ -679,6 +810,10 @@ class AgentLoop:
                     result = auto_result
             else:
                 result = execute_tool(tool_name, args, self.project_name)
+
+            # 自主模式防跑偏钩子：写正文/完成章节/加章节时附加检查
+            if self.mode == AgentMode.AUTONOMOUS:
+                result = self._apply_auto_enforcement(tool_name, args, result)
 
             # 截断超长工具结果（防止撑爆上下文）
             result_str = str(result)

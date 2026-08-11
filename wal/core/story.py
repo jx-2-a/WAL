@@ -118,6 +118,7 @@ class StoryManager:
             "title": ch_row["title"],
             "status": ch_row["status"],
             "summary": ch_row["summary"],
+            "anchor": ch_row.get("anchor", ""),
             "word_count_target": ch_row["word_count_target"],
             "actual_word_count": ch_row["actual_word_count"],
             "plot_points_involved": ch_row["plot_points_involved"],
@@ -498,6 +499,329 @@ class StoryManager:
                 "foreshadowing_refs_cleared": fw_reset["cleared_created"] + fw_reset["cleared_resolved"],
             },
         }
+
+    # ═══ 防跑偏与章节移动 ════════════════════════════════════════
+
+    def _relocate_chapter(self, old_number: int, new_number: int) -> None:
+        """把章节从旧号改到新号，级联迁移所有引用
+
+        前提：new_number 未被其他章节占用（调用方必须保证）。
+        迁移范围：scenes / FTS / character_snapshots / plot_points /
+        foreshadowings（created+resolved）与章节自身的 id、number。
+        """
+        old_id = f"ch_{old_number:04d}"
+        new_id = f"ch_{new_number:04d}"
+        with self.db.get_conn() as conn:
+            # 级联迁移期间关闭外键（scenes/卷引用在改号中间态可能暂时悬空）
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute(
+                "UPDATE scenes SET chapter_id = ? WHERE chapter_id = ?", (new_id, old_id))
+            conn.execute(
+                "UPDATE content_fts SET chapter_id = ? WHERE chapter_id = ?", (new_id, old_id))
+            conn.execute(
+                "UPDATE character_snapshots SET chapter_number = ? WHERE chapter_number = ?",
+                (new_number, old_number))
+            conn.execute(
+                "UPDATE plot_points SET chapter_assigned = ? WHERE chapter_assigned = ?",
+                (new_number, old_number))
+            conn.execute(
+                "UPDATE foreshadowings SET created_at_chapter = ? WHERE created_at_chapter = ?",
+                (new_number, old_number))
+            conn.execute(
+                "UPDATE foreshadowings SET resolved_at_chapter = ? WHERE resolved_at_chapter = ?",
+                (new_number, old_number))
+            conn.execute(
+                "UPDATE chapters SET id = ?, number = ? WHERE id = ?", (new_id, new_number, old_id))
+            conn.commit()
+
+    def move_chapter(self, from_number: int, to_number: int) -> dict:
+        """移动章节：改章节号并级联迁移所有引用
+
+        目标章节号若已被占用则报错（需先删除或用 renumber_chapters 重排）。
+        """
+        if from_number == to_number:
+            return {"moved": True, "from": from_number, "to": to_number,
+                    "message": "章节号未变化"}
+        ch = self.get_chapter(from_number)
+        if not ch:
+            return {"error": f"第{from_number}章不存在"}
+        target = self.get_chapter(to_number)
+        if target:
+            return {"error": f"第{to_number}章已存在（《{target.title}》），请先删除或用 renumber_chapters 重排"}
+        self._relocate_chapter(from_number, to_number)
+        self.load_story()
+        return {"moved": True, "from": from_number, "to": to_number, "title": ch.title}
+
+    def renumber_chapters(self, start_at: int = 1, new_start: int = 1) -> dict:
+        """批量重排章节号：从 start_at 起顺延，新的起始号为 new_start
+
+        删除中间章节后留下空洞时使用（如删了第5章，把6..N 前移为 5..N-1：
+        renumber_chapters(start_at=6, new_start=5)）。
+        使用临时号双阶段迁移，避免移动过程中的号冲突。
+        """
+        rows = self.repo.list_chapters()
+        to_move = sorted(
+            (r["number"] for r in rows if r["number"] >= start_at))
+        if not to_move:
+            return {"renumbered": 0, "message": "没有章节需要重排"}
+        all_numbers = {r["number"] for r in rows}
+        for i, old_n in enumerate(to_move):
+            new_n = new_start + i
+            if new_n in all_numbers and new_n not in set(to_move):
+                return {"error": f"目标章节号 {new_n} 已被未移动的章节占用，请先处理冲突"}
+        TEMP_OFFSET = 100000
+        # 阶段一：旧号 → 临时号（唯一，无冲突）
+        for old_n in to_move:
+            self._relocate_chapter(old_n, old_n + TEMP_OFFSET)
+        # 阶段二：临时号 → 最终号
+        moves = []
+        for i, old_n in enumerate(to_move):
+            final_n = new_start + i
+            self._relocate_chapter(old_n + TEMP_OFFSET, final_n)
+            moves.append({"from": old_n, "to": final_n})
+        self.load_story()
+        return {"renumbered": len(moves), "moves": moves}
+
+    def assign_chapter_to_volume(self, chapter_number: int,
+                                 volume_number: int) -> dict:
+        """把章节挂到指定卷下（写 chapters.volume_id）"""
+        vol = self.repo.get_volume_by_number(volume_number)
+        if not vol:
+            return {"error": f"卷 {volume_number} 不存在"}
+        ch_id = f"ch_{chapter_number:04d}"
+        ch_row = self.repo.load_chapter(ch_id)
+        if not ch_row:
+            return {"error": f"第{chapter_number}章不存在"}
+        self.repo.update_chapter_field(ch_id, "volume_id", vol["id"])
+        self.load_story()
+        return {"assigned": True, "chapter_number": chapter_number,
+                "volume_number": volume_number, "volume_id": vol["id"],
+                "volume_title": vol["title"]}
+
+    def assign_chapters_to_volume(self, volume_number: int,
+                                  start: int, end: int) -> dict:
+        """批量把 start~end 章挂到指定卷（一次修完遗留的未挂卷章节）"""
+        vol = self.repo.get_volume_by_number(volume_number)
+        if not vol:
+            return {"error": f"卷 {volume_number} 不存在"}
+        assigned = []
+        for n in range(int(start), int(end) + 1):
+            ch_id = f"ch_{n:04d}"
+            if self.repo.load_chapter(ch_id):
+                self.repo.update_chapter_field(ch_id, "volume_id", vol["id"])
+                assigned.append(n)
+        self.load_story()
+        return {"assigned": len(assigned), "chapters": assigned,
+                "volume_number": volume_number, "volume_title": vol["title"]}
+
+    def auto_attach_to_volume(self, chapter_number: int) -> dict:
+        """add_chapter 自动挂卷：按各卷章节范围把新章归入对应卷"""
+        for v in self.repo.list_volumes():
+            s = int(v.get("chapter_start") or 0)
+            e = int(v.get("chapter_end") or 0)
+            if s > 0 and e > 0 and s <= chapter_number <= e:
+                ch_id = f"ch_{chapter_number:04d}"
+                self.repo.update_chapter_field(ch_id, "volume_id", v["id"])
+                self.load_story()
+                return {"attached": True, "chapter_number": chapter_number,
+                        "volume_number": v["number"], "volume_id": v["id"]}
+        return {"attached": False, "chapter_number": chapter_number,
+                "reason": "无匹配卷范围（可用 set_volume_range 声明后自动挂卷）"}
+
+    def set_volume_range(self, volume_number: int,
+                         start_chapter: int, end_chapter: int) -> dict:
+        """声明卷的章节范围（范围锁）。卷三=50~72 即 set_volume_range(3,50,72)"""
+        vol = self.repo.get_volume_by_number(volume_number)
+        if not vol:
+            return {"error": f"卷 {volume_number} 不存在"}
+        if int(end_chapter) < int(start_chapter):
+            return {"error": "结束章节号不能小于起始章节号"}
+        self.repo.update_volume_field(vol["id"], "chapter_start", int(start_chapter))
+        self.repo.update_volume_field(vol["id"], "chapter_end", int(end_chapter))
+        return {"range_set": True, "volume_number": volume_number,
+                "volume_title": vol["title"],
+                "chapter_start": int(start_chapter), "chapter_end": int(end_chapter)}
+
+    def list_volume_ranges(self) -> list[dict]:
+        """列出各卷的章节范围"""
+        result = []
+        for v in self.repo.list_volumes():
+            result.append({
+                "volume_number": v["number"],
+                "volume_title": v["title"],
+                "status": v.get("status", ""),
+                "chapter_start": int(v.get("chapter_start") or 0),
+                "chapter_end": int(v.get("chapter_end") or 0),
+            })
+        return result
+
+    def set_chapter_anchor(self, chapter_number: int, anchor: str) -> dict:
+        """设置章节锚点（本章应写什么，check_chapter_alignment 对照依据）"""
+        ch_id = f"ch_{chapter_number:04d}"
+        if not self.repo.load_chapter(ch_id):
+            return {"error": f"第{chapter_number}章不存在"}
+        self.repo.update_chapter_field(ch_id, "anchor", anchor)
+        return {"anchor_set": True, "chapter_number": chapter_number,
+                "anchor_preview": anchor[:100]}
+
+    # ═══ 内容修复 ════════════════════════════════════════════════
+
+    def global_replace(self, old: str, new: str,
+                       in_titles: bool = False,
+                       in_summaries: bool = False) -> dict:
+        """全书查找替换（场景正文为主，可选改标题/摘要）
+
+        场景正文替换复用 update_scene_content，自动重算字数并重建 FTS 索引。
+        """
+        if not old:
+            return {"error": "替换词 old 不能为空"}
+        scenes_replaced = 0
+        titles_replaced = 0
+        summaries_replaced = 0
+        for ch_row in self.repo.list_chapters():
+            ch_id = ch_row["id"]
+            ch_num = ch_row["number"]
+            for sc in self.repo.list_scenes_by_chapter(ch_id):
+                if sc["content"] and old in sc["content"]:
+                    self.update_scene_content(
+                        ch_num, sc["scene_index"], sc["content"].replace(old, new))
+                    scenes_replaced += 1
+            if in_titles and ch_row.get("title") and old in ch_row["title"]:
+                self.repo.update_chapter_field(
+                    ch_id, "title", ch_row["title"].replace(old, new))
+                titles_replaced += 1
+            if in_summaries and ch_row.get("summary") and old in ch_row["summary"]:
+                self.repo.update_chapter_field(
+                    ch_id, "summary", ch_row["summary"].replace(old, new))
+                summaries_replaced += 1
+        self.load_story()
+        return {"replaced": {"scenes": scenes_replaced,
+                             "titles": titles_replaced,
+                             "summaries": summaries_replaced},
+                "old": old, "new": new}
+
+    def _renumber_scene_indexes(self, chapter_id: str) -> None:
+        """把章内场景的 scene_index 重排为 0..n-1"""
+        scenes = self.repo.list_scenes_by_chapter(chapter_id)
+        for i, sc in enumerate(scenes):
+            self.repo.update_scene_field(sc["id"], "scene_index", i)
+
+    def merge_scenes(self, chapter_number: int,
+                     index_a: int, index_b: int) -> dict:
+        """合并章内两个场景：内容并入 A，删除 B，重排索引"""
+        ch_id = f"ch_{chapter_number:04d}"
+        scenes = self.repo.list_scenes_by_chapter(ch_id)
+        if index_a == index_b:
+            return {"error": "不能合并同一场景"}
+        if not (0 <= index_a < len(scenes) and 0 <= index_b < len(scenes)):
+            return {"error": f"场景索引越界（本章共 {len(scenes)} 个场景）"}
+        a, b = scenes[index_a], scenes[index_b]
+        merged = (a["content"] or "").strip()
+        b_content = (b["content"] or "").strip()
+        if merged and b_content:
+            merged = merged + "\n\n" + b_content
+        elif b_content:
+            merged = b_content
+        self.repo.update_scene_content(a["id"], merged)
+        self.repo.remove_scene_from_fts(b["id"])
+        self.repo.delete_scene(b["id"])
+        self._renumber_scene_indexes(ch_id)
+        self._recalc_chapter_word_count(ch_id)
+        self.load_story()
+        return {"merged": True, "chapter_number": chapter_number,
+                "scene_a": index_a, "scene_b": index_b, "result_index": index_a,
+                "total_words": len(merged)}
+
+    def split_scene(self, chapter_number: int,
+                    scene_index: int, split_at: int) -> dict:
+        """按字符位置拆分场景为两个场景，重排索引并重建 FTS"""
+        ch_id = f"ch_{chapter_number:04d}"
+        scenes = self.repo.list_scenes_by_chapter(ch_id)
+        if not (0 <= scene_index < len(scenes)):
+            return {"error": f"场景索引越界（本章共 {len(scenes)} 个场景）"}
+        sc = scenes[scene_index]
+        content = sc["content"] or ""
+        if split_at <= 0 or split_at >= len(content):
+            return {"error": f"拆分点必须在 1~{len(content)} 之间（当前正文 {len(content)} 字）"}
+        part1 = content[:split_at].rstrip()
+        part2 = content[split_at:].lstrip()
+        # 新场景唯一 id
+        n = self.repo.next_scene_index(ch_id)
+        new_id = f"sc_ch{chapter_number}_{n + 1:02d}"
+        while self.repo.load_scene(new_id):
+            n += 1
+            new_id = f"sc_ch{chapter_number}_{n + 1:02d}"
+        # 原场景更新为前段
+        self.repo.update_scene_content(sc["id"], part1)
+        # 新场景写入后段
+        new_scene = Scene(
+            id=new_id, title=sc["title"], location_id=sc["location_id"],
+            time_point=sc["time_point"], characters_present=sc["characters_present"],
+            content=part2, plot_advancements=sc["plot_advancements"],
+            notes=sc["notes"], word_count=len(part2),
+        )
+        sc_dict = new_scene.model_dump(mode="json")
+        sc_dict["chapter_id"] = ch_id
+        sc_dict["scene_index"] = len(scenes)  # 临时索引，随后重排
+        self.repo.save_scene(sc_dict)
+        self._renumber_scene_indexes(ch_id)
+        self._recalc_chapter_word_count(ch_id)
+        # 重建 FTS（两个场景）
+        ch_row = self.repo.load_chapter_by_number(chapter_number)
+        if ch_row:
+            for scene_id, s_title, s_content in (
+                (sc["id"], sc["title"], part1),
+                (new_id, sc["title"], part2),
+            ):
+                self.repo.index_scene_for_fts(
+                    chapter_id=ch_id, chapter_title=ch_row.get("title", ""),
+                    chapter_summary=ch_row.get("summary", ""),
+                    scene_id=scene_id, scene_title=s_title,
+                    content=s_content,
+                    characters=", ".join(sc["characters_present"]),
+                    location=sc["location_id"],
+                    plot_refs=", ".join(sc["plot_advancements"]),
+                )
+        self.load_story()
+        return {"split": True, "chapter_number": chapter_number,
+                "scene_index": scene_index, "split_at": split_at,
+                "left_words": len(part1), "right_words": len(part2)}
+
+    # ═══ 时间线 ══════════════════════════════════════════════════
+
+    def story_timeline(self) -> dict:
+        """故事内时间轴：各章场景的 time_point + timeline_events 表"""
+        chapters = []
+        for ch_row in self.repo.list_chapters():
+            time_points = [
+                s["time_point"] for s in self.repo.list_scenes_by_chapter(ch_row["id"])
+                if s.get("time_point")
+            ]
+            chapters.append({
+                "chapter": ch_row["number"],
+                "title": ch_row["title"],
+                "status": ch_row["status"],
+                "time_points": time_points,
+                "summary": ch_row.get("summary", ""),
+            })
+        events = []
+        try:
+            with self.db.get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT id, title, description, time_point, related_chapters "
+                    "FROM timeline_events WHERE story_id = 'main' ORDER BY time_point"
+                ).fetchall()
+                for r in rows:
+                    ev = dict(r)
+                    try:
+                        ev["related_chapters"] = self.repo._from_json(
+                            ev.get("related_chapters", "[]"))
+                    except Exception:
+                        ev["related_chapters"] = []
+                    events.append(ev)
+        except Exception:
+            events = []
+        return {"chapters": chapters, "timeline_events": events}
 
     # ═══ 场景 ═════════════════════════════════════════════════════
 

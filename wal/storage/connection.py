@@ -386,6 +386,18 @@ CREATE TABLE IF NOT EXISTS agent_config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+
+-- ═══ 防跑偏：铁律引擎 ═══
+
+CREATE TABLE IF NOT EXISTS iron_laws (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    keywords TEXT NOT NULL DEFAULT '[]',
+    forbidden_volumes TEXT NOT NULL DEFAULT '[]',
+    only_in_volume INTEGER NOT NULL DEFAULT 0,
+    severity TEXT NOT NULL DEFAULT 'warning',
+    note TEXT NOT NULL DEFAULT ''
+);
 """
 
 # ── 插入默认配置 ───────────────────────────────────────────────────
@@ -450,4 +462,18 @@ class Database:
         columns = {row[1] for row in cur.fetchall()}
         if "style" not in columns:
             conn.execute("ALTER TABLE stories ADD COLUMN style TEXT NOT NULL DEFAULT ''")
+
+        # chapters.anchor — 章节锚点（防跑偏：本章应写什么）
+        cur = conn.execute("PRAGMA table_info(chapters)")
+        columns = {row[1] for row in cur.fetchall()}
+        if "anchor" not in columns:
+            conn.execute("ALTER TABLE chapters ADD COLUMN anchor TEXT NOT NULL DEFAULT ''")
+
+        # volumes.chapter_start / chapter_end — 卷范围锁（防跑偏：卷含哪几章）
+        cur = conn.execute("PRAGMA table_info(volumes)")
+        columns = {row[1] for row in cur.fetchall()}
+        if "chapter_start" not in columns:
+            conn.execute("ALTER TABLE volumes ADD COLUMN chapter_start INTEGER NOT NULL DEFAULT 0")
+        if "chapter_end" not in columns:
+            conn.execute("ALTER TABLE volumes ADD COLUMN chapter_end INTEGER NOT NULL DEFAULT 0")
 

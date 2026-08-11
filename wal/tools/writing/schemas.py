@@ -1303,4 +1303,510 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_writing_mandate",
+            "description": "【防跑偏核心】获取写作指令：当前卷+章节范围锁+铁律+骨架锚点+必读设定文档。自主模式写正文前必须先调用（系统提示词已自动注入一份，主动调用可获得完整版并确认当前卷）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "volume_number": {
+                        "type": "integer",
+                        "description": "指定卷号（可选，0=自动定位当前卷）",
+                    },
+                    "current_chapter": {
+                        "type": "integer",
+                        "description": "指定当前章（可选，用于提取本章锚点）",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_current_volume",
+            "description": "【防跑偏核心】声明当前写作卷，建立范围锁。写章超出当前卷范围时需显式调用本工具确认进入下一卷才能继续。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "volume_number": {
+                        "type": "integer",
+                        "description": "卷号，如 3",
+                    },
+                },
+                "required": ["volume_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_volume_range",
+            "description": "声明卷的章节范围（范围锁）。例：卷三=50~72 → set_volume_range(3, 50, 72)。声明后 add_chapter 会自动按范围挂卷，越界写章会被警告。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "volume_number": {
+                        "type": "integer",
+                        "description": "卷号",
+                    },
+                    "start_chapter": {
+                        "type": "integer",
+                        "description": "卷的起始章节号",
+                    },
+                    "end_chapter": {
+                        "type": "integer",
+                        "description": "卷的结束章节号",
+                    },
+                },
+                "required": ["volume_number", "start_chapter", "end_chapter"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_volume_ranges",
+            "description": "列出所有卷及其章节范围锁。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_iron_law",
+            "description": "【防跑偏核心】新增铁律：设定剧情红线关键词及其允许/禁止卷。写正文时命中且落在禁止范围即报违规。例：万山之祖传承只在卷五 → add_iron_law(name='万山之祖传承', keywords=['万山之祖','传承','接替'], only_in_volume=5)。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "铁律名称",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "关键词列表，正文命中即触发扫描",
+                    },
+                    "forbidden_volumes": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "禁止出现这些关键词的卷号列表",
+                    },
+                    "only_in_volume": {
+                        "type": "integer",
+                        "description": "关键词只允许出现的卷号（0=不限）",
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["warning", "block"],
+                        "description": "违规严重度：warning=警告 / block=拦截",
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "铁律说明",
+                    },
+                },
+                "required": ["name", "keywords"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_iron_laws",
+            "description": "列出全部铁律。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_iron_law",
+            "description": "删除一条铁律。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "law_id": {
+                        "type": "string",
+                        "description": "铁律ID，如 law_001",
+                    },
+                },
+                "required": ["law_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_iron_law",
+            "description": "扫描指定章节正文是否命中铁律违规（写后自查/写前检查）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter_number": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                },
+                "required": ["chapter_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_chapter_anchor",
+            "description": "设置章节锚点（本章应写什么）。check_chapter_alignment 的对照依据；可把骨架文档中该章的规划内容设为锚点。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter_number": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                    "anchor": {
+                        "type": "string",
+                        "description": "锚点内容，如「孤霞岭：青见继承万山之祖传承的伏笔揭晓」",
+                    },
+                },
+                "required": ["chapter_number", "anchor"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_auto_mandatory_docs",
+            "description": "配置自主模式启动必读文档（按顺序注入写作指令）。传入自定义文档ID列表。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "doc_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "自定义文档ID列表，如 ['cd_bb59afe6', 'cd_13d531c8']",
+                    },
+                },
+                "required": ["doc_ids"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "move_chapter",
+            "description": "移动章节：把章节改到新章节号，级联迁移所有引用（场景/全文索引/角色快照/情节点/伏笔）。目标号被占用会报错。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "from_number": {
+                        "type": "integer",
+                        "description": "原章节号",
+                    },
+                    "to_number": {
+                        "type": "integer",
+                        "description": "新章节号",
+                    },
+                },
+                "required": ["from_number", "to_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "renumber_chapters",
+            "description": "批量重排章节号：从 start_at 起的章节顺延为 new_start 起。删除中间章节留下空洞时使用（如删了第5章，把6..N前移：renumber_chapters(6, 5)）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_at": {
+                        "type": "integer",
+                        "description": "从此章节号开始重排，默认1",
+                    },
+                    "new_start": {
+                        "type": "integer",
+                        "description": "重排后的起始号，默认1",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "assign_chapter_to_volume",
+            "description": "把指定章节挂到指定卷下（写 chapters.volume_id）。用于修复历史遗留的未挂卷章节。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter_number": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                    "volume_number": {
+                        "type": "integer",
+                        "description": "目标卷号",
+                    },
+                },
+                "required": ["chapter_number", "volume_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "assign_chapters_to_volume",
+            "description": "批量把 start~end 章挂到指定卷。一次修完历史遗留的未挂卷章节。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "volume_number": {
+                        "type": "integer",
+                        "description": "目标卷号",
+                    },
+                    "start": {
+                        "type": "integer",
+                        "description": "起始章节号",
+                    },
+                    "end": {
+                        "type": "integer",
+                        "description": "结束章节号",
+                    },
+                },
+                "required": ["volume_number", "start", "end"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_plot_point",
+            "description": "向剧情线添加情节点，可绑定到指定章节（chapter_assigned）。绑定后 set_chapter_status(done) 会自动推进。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plot_id": {
+                        "type": "string",
+                        "description": "剧情线ID，如 plot_001",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "情节点标题",
+                    },
+                    "chapter_assigned": {
+                        "type": "integer",
+                        "description": "绑定到的章节号（可选，0=未绑定）",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "情节点描述",
+                    },
+                    "emotional_tone": {
+                        "type": "string",
+                        "description": "情绪基调",
+                    },
+                    "impacts_characters": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "影响到的角色ID",
+                    },
+                    "estimated_words": {
+                        "type": "integer",
+                        "description": "预计字数",
+                    },
+                },
+                "required": ["plot_id", "title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "assign_plot_point_to_chapter",
+            "description": "把情节点绑定到指定章节（进度绑定）。章节完成后自动推进该情节点。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plot_id": {
+                        "type": "string",
+                        "description": "剧情线ID",
+                    },
+                    "point_id": {
+                        "type": "string",
+                        "description": "情节点ID",
+                    },
+                    "chapter": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                },
+                "required": ["plot_id", "point_id", "chapter"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bind_plot_points_to_chapter",
+            "description": "批量把剧情线的多个情节点绑定到指定章节。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plot_id": {
+                        "type": "string",
+                        "description": "剧情线ID",
+                    },
+                    "chapter": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                    "point_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "情节点ID列表",
+                    },
+                },
+                "required": ["plot_id", "chapter", "point_ids"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "auto_advance_plot",
+            "description": "章节完成后自动推进：把绑定到该章的情节点标记为完成，剧情线进度自动上涨。set_chapter_status(done) 时系统会自动调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter_number": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                },
+                "required": ["chapter_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_chapter_alignment",
+            "description": "写后对照：本章实际内容 vs 锚点（规划）。锚点事件未出现即报告偏离，输出「规划 vs 实际」缺失清单。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter_number": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                },
+                "required": ["chapter_number"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "global_replace",
+            "description": "全书查找替换：改设定/人名时不用一章章翻。默认只替换场景正文，可选替换章节标题/摘要。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "old": {
+                        "type": "string",
+                        "description": "要替换的原文",
+                    },
+                    "new": {
+                        "type": "string",
+                        "description": "替换为",
+                    },
+                    "in_titles": {
+                        "type": "boolean",
+                        "description": "是否同时替换章节标题",
+                    },
+                    "in_summaries": {
+                        "type": "boolean",
+                        "description": "是否同时替换章节摘要",
+                    },
+                },
+                "required": ["old", "new"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "merge_scenes",
+            "description": "合并章内两个场景：内容并入 scene_a，删除 scene_b，重排索引。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                    "scene_a": {
+                        "type": "integer",
+                        "description": "保留的场景索引",
+                    },
+                    "scene_b": {
+                        "type": "integer",
+                        "description": "被合并删除的场景索引",
+                    },
+                },
+                "required": ["chapter", "scene_a", "scene_b"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "split_scene",
+            "description": "按字符位置拆分场景为两个场景。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter": {
+                        "type": "integer",
+                        "description": "章节号",
+                    },
+                    "scene_index": {
+                        "type": "integer",
+                        "description": "要拆分的场景索引",
+                    },
+                    "split_at": {
+                        "type": "integer",
+                        "description": "拆分字符位置（0~正文长度之间）",
+                    },
+                },
+                "required": ["chapter", "scene_index", "split_at"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "story_timeline",
+            "description": "故事内时间轴：各章场景的时间点 + timeline_events 表。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]

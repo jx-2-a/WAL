@@ -253,6 +253,10 @@ class StoryRepository(DatabaseRepository):
                      "id = ?", (scene_id,))
         self.update_story_field("updated_at", datetime.now().isoformat())
 
+    def update_scene_field(self, scene_id: str, key: str, value) -> None:
+        """更新场景的单个字段（如 scene_index）"""
+        self._update("scenes", {key: value}, "id = ?", (scene_id,))
+
     def next_scene_index(self, chapter_id: str) -> int:
         return self._count("scenes", "chapter_id = ?", (chapter_id,))
 

@@ -56,6 +56,30 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
         get_chapter_artifacts,
         delete_scene_tool,
         read_file,
+        # 防跑偏与章节移动工具
+        get_writing_mandate,
+        set_current_volume,
+        set_volume_range,
+        list_volume_ranges,
+        add_iron_law,
+        list_iron_laws,
+        delete_iron_law,
+        check_iron_law,
+        set_chapter_anchor,
+        set_auto_mandatory_docs,
+        move_chapter,
+        renumber_chapters,
+        assign_chapter_to_volume,
+        assign_chapters_to_volume,
+        add_plot_point,
+        assign_plot_point_to_chapter,
+        bind_plot_points_to_chapter,
+        auto_advance_plot,
+        check_chapter_alignment,
+        global_replace,
+        merge_scenes,
+        split_scene,
+        story_timeline,
     )
     from wal.tools.shared.memory import save_agent_memory, get_agent_memory
     from wal.core import StoryManager, CharacterManager
@@ -260,6 +284,71 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
             arguments.get("start_line", 0),
             arguments.get("line_limit", 0),
         ),
+        # 防跑偏与章节移动工具
+        "get_writing_mandate": lambda: get_writing_mandate(
+            project_name,
+            arguments.get("volume_number", 0),
+            arguments.get("current_chapter", 0),
+        ),
+        "set_current_volume": lambda: set_current_volume(
+            project_name, arguments["volume_number"]),
+        "set_volume_range": lambda: set_volume_range(
+            project_name, arguments["volume_number"],
+            arguments["start_chapter"], arguments["end_chapter"]),
+        "list_volume_ranges": lambda: list_volume_ranges(project_name),
+        "add_iron_law": lambda: add_iron_law(
+            project_name, arguments["name"], arguments.get("keywords", []),
+            arguments.get("forbidden_volumes", []),
+            arguments.get("only_in_volume", 0),
+            arguments.get("severity", "warning"),
+            arguments.get("note", "")),
+        "list_iron_laws": lambda: list_iron_laws(project_name),
+        "delete_iron_law": lambda: delete_iron_law(
+            project_name, arguments["law_id"]),
+        "check_iron_law": lambda: check_iron_law(
+            project_name, arguments["chapter_number"]),
+        "set_chapter_anchor": lambda: set_chapter_anchor(
+            project_name, arguments["chapter_number"], arguments["anchor"]),
+        "set_auto_mandatory_docs": lambda: set_auto_mandatory_docs(
+            project_name, arguments.get("doc_ids", [])),
+        "move_chapter": lambda: move_chapter(
+            project_name, arguments["from_number"], arguments["to_number"]),
+        "renumber_chapters": lambda: renumber_chapters(
+            project_name, arguments.get("start_at", 1),
+            arguments.get("new_start", 1)),
+        "assign_chapter_to_volume": lambda: assign_chapter_to_volume(
+            project_name, arguments["chapter_number"], arguments["volume_number"]),
+        "assign_chapters_to_volume": lambda: assign_chapters_to_volume(
+            project_name, arguments["volume_number"],
+            arguments["start"], arguments["end"]),
+        "add_plot_point": lambda: add_plot_point(
+            project_name, arguments["plot_id"], arguments["title"],
+            arguments.get("chapter_assigned", 0),
+            arguments.get("description", ""),
+            arguments.get("emotional_tone", ""),
+            arguments.get("impacts_characters", []),
+            arguments.get("estimated_words", 0)),
+        "assign_plot_point_to_chapter": lambda: assign_plot_point_to_chapter(
+            project_name, arguments["plot_id"], arguments["point_id"],
+            arguments["chapter"]),
+        "bind_plot_points_to_chapter": lambda: bind_plot_points_to_chapter(
+            project_name, arguments["plot_id"], arguments["chapter"],
+            arguments.get("point_ids", [])),
+        "auto_advance_plot": lambda: auto_advance_plot(
+            project_name, arguments["chapter_number"]),
+        "check_chapter_alignment": lambda: check_chapter_alignment(
+            project_name, arguments["chapter_number"]),
+        "global_replace": lambda: global_replace(
+            project_name, arguments["old"], arguments["new"],
+            arguments.get("in_titles", False),
+            arguments.get("in_summaries", False)),
+        "merge_scenes": lambda: merge_scenes(
+            project_name, arguments["chapter"],
+            arguments["scene_a"], arguments["scene_b"]),
+        "split_scene": lambda: split_scene(
+            project_name, arguments["chapter"],
+            arguments["scene_index"], arguments["split_at"]),
+        "story_timeline": lambda: story_timeline(project_name),
     }
 
     func = tool_map.get(tool_name)
@@ -285,6 +374,7 @@ def _add_chapter(project_name: str, args: dict) -> dict:
     proj_path = str(Path(os.environ.get("WAL_PROJECTS", "projects")) / project_name)
     sm = StoryManager(proj_path)
     sm.load_story()
+    specified_volume = bool(args.get("volume_id") or args.get("volume_number"))
     ch = sm.add_chapter(
         title=args["title"],
         summary=args.get("summary", ""),
@@ -293,7 +383,13 @@ def _add_chapter(project_name: str, args: dict) -> dict:
         volume_number=args.get("volume_number", 0),
         chapter_number=args.get("chapter_number", 0),
     )
-    return {"number": ch.number, "title": ch.title, "status": ch.status}
+    result = {"number": ch.number, "title": ch.title, "status": ch.status}
+    # 卷-章自动挂载：未指定卷时按卷范围自动归卷（防跑偏 P1）
+    if not specified_volume:
+        attach = sm.auto_attach_to_volume(ch.number)
+        if attach.get("attached"):
+            result["volume_attached"] = attach["volume_number"]
+    return result
 
 
 def _add_character(project_name: str, args: dict) -> dict:

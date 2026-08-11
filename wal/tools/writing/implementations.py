@@ -874,3 +874,312 @@ def read_file(path: str, encoding: str = "utf-8",
     header += f"{'─' * 60}\n"
 
     return header + result
+
+
+# ============================================================
+# 防跑偏与章节移动工具（P0/P1/P2 全清单）
+# ============================================================
+
+def get_writing_mandate(project_name: str, volume_number: int = 0,
+                        current_chapter: int = 0) -> dict:
+    """获取写作指令：当前卷 + 章节范围锁 + 铁律 + 骨架锚点 + 必读设定文档
+
+    这是自主模式写正文前的**必读指令**。进入自主模式时系统提示词会自动注入
+    一份，主动调用可获得完整版并确认当前卷。
+
+    Args:
+        volume_number: 指定卷号（0=自动定位当前卷）
+        current_chapter: 指定当前章（用于提取本章锚点）
+    """
+    from wal.core.mandate import MandateBuilder
+    proj = _get_project_path(project_name)
+    mb = MandateBuilder(proj)
+    mandate = mb.build(volume_number=volume_number, current_chapter=current_chapter)
+    # 确认当前卷
+    vol = mandate.get("volume") or {}
+    if vol and vol.get("number"):
+        mb.set_config("auto_current_volume", str(vol["number"]))
+    formatted = mb.format(mandate)
+    return {
+        "current_volume": (vol or {}).get("number", 0),
+        "range_lock": mandate.get("range_lock"),
+        "iron_laws": mandate.get("iron_laws"),
+        "chapter_anchor": mandate.get("chapter"),
+        "mandatory_docs": [{"doc_id": d["id"], "title": d["title"]}
+                           for d in mandate.get("mandatory_docs", [])],
+        "formatted": formatted,
+    }
+
+
+def set_current_volume(project_name: str, volume_number: int) -> dict:
+    """声明当前写作卷，建立范围锁。写章超出该卷范围时需显式调用本工具确认进入下一卷"""
+    from wal.core.mandate import MandateBuilder
+    from wal.core import StoryManager
+    proj = _get_project_path(project_name)
+    mb = MandateBuilder(proj)
+    sm = StoryManager(proj)
+    sm.load_story()
+    vol_row = sm.repo.get_volume_by_number(volume_number)
+    if not vol_row:
+        return {"error": f"卷 {volume_number} 不存在"}
+    mb.set_config("auto_current_volume", str(volume_number))
+    return {
+        "current_volume": volume_number,
+        "volume_title": vol_row.get("title", ""),
+        "range_lock": {
+            "chapter_start": int(vol_row.get("chapter_start") or 0),
+            "chapter_end": int(vol_row.get("chapter_end") or 0),
+        },
+        "message": f"当前卷已切换为第{volume_number}卷，超出范围前需显式再次调用本工具放行",
+    }
+
+
+def set_volume_range(project_name: str, volume_number: int,
+                     start_chapter: int, end_chapter: int) -> dict:
+    """声明卷的章节范围（范围锁）。例：卷三=50~72 → set_volume_range(3, 50, 72)"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.set_volume_range(volume_number, start_chapter, end_chapter)
+
+
+def list_volume_ranges(project_name: str) -> list[dict]:
+    """列出所有卷及其章节范围锁"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.list_volume_ranges()
+
+
+def add_iron_law(project_name: str, name: str, keywords: list[str],
+                 forbidden_volumes: list[int] | None = None,
+                 only_in_volume: int = 0, severity: str = "warning",
+                 note: str = "") -> dict:
+    """新增铁律。keywords 命中且落在禁止范围即报违规。
+
+    例：「万山之祖传承」只在卷五出现 → add_iron_law(name='万山之祖传承',
+    keywords=['万山之祖', '传承', '接替'], only_in_volume=5)
+    """
+    from wal.core.iron_law import IronLawManager
+    proj = _get_project_path(project_name)
+    im = IronLawManager(proj)
+    return im.add_iron_law(name, keywords, forbidden_volumes, only_in_volume, severity, note)
+
+
+def list_iron_laws(project_name: str) -> list[dict]:
+    """列出全部铁律"""
+    from wal.core.iron_law import IronLawManager
+    proj = _get_project_path(project_name)
+    return IronLawManager(proj).list_iron_laws()
+
+
+def delete_iron_law(project_name: str, law_id: str) -> dict:
+    """删除一条铁律"""
+    from wal.core.iron_law import IronLawManager
+    proj = _get_project_path(project_name)
+    return IronLawManager(proj).delete_iron_law(law_id)
+
+
+def check_iron_law(project_name: str, chapter_number: int) -> dict:
+    """扫描指定章节正文是否命中铁律违规（写后检查/写前自查）"""
+    from wal.core.iron_law import IronLawManager
+    proj = _get_project_path(project_name)
+    im = IronLawManager(proj)
+    violations = im.scan_chapter(chapter_number)
+    return {
+        "chapter_number": chapter_number,
+        "violations": violations,
+        "violation_count": len(violations),
+        "clean": len(violations) == 0,
+    }
+
+
+def set_chapter_anchor(project_name: str, chapter_number: int,
+                       anchor: str) -> dict:
+    """设置章节锚点（本章应写什么）。check_chapter_alignment 的对照依据"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.set_chapter_anchor(chapter_number, anchor)
+
+
+def set_auto_mandatory_docs(project_name: str, doc_ids: list[str]) -> dict:
+    """配置自主模式启动必读文档（按顺序注入写作指令）"""
+    from wal.core.mandate import MandateBuilder
+    import json as _json
+    proj = _get_project_path(project_name)
+    mb = MandateBuilder(proj)
+    mb.set_config("auto_mandatory_docs",
+                  _json.dumps(list(doc_ids), ensure_ascii=False))
+    return {"mandatory_docs": list(doc_ids), "saved": True}
+
+
+def move_chapter(project_name: str, from_number: int, to_number: int) -> dict:
+    """移动章节：把章节改到新章节号，级联迁移所有引用（场景/索引/快照/情节点/伏笔）"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.move_chapter(from_number, to_number)
+
+
+def renumber_chapters(project_name: str, start_at: int = 1,
+                      new_start: int = 1) -> dict:
+    """批量重排章节号：从 start_at 起的章节顺延为 new_start 起（删除章节留空洞时用）"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.renumber_chapters(start_at, new_start)
+
+
+def assign_chapter_to_volume(project_name: str, chapter_number: int,
+                             volume_number: int) -> dict:
+    """把指定章节挂到指定卷下"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.assign_chapter_to_volume(chapter_number, volume_number)
+
+
+def assign_chapters_to_volume(project_name: str, volume_number: int,
+                              start: int, end: int) -> dict:
+    """批量把 start~end 章挂到指定卷（一次修完历史遗留的未挂卷章节）"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.assign_chapters_to_volume(volume_number, start, end)
+
+
+def add_plot_point(project_name: str, plot_id: str, title: str,
+                   chapter_assigned: int = 0, description: str = "",
+                   emotional_tone: str = "", impacts_characters: list[str] | None = None,
+                   estimated_words: int = 0) -> dict:
+    """向剧情线添加情节点，可绑定到指定章节"""
+    proj = _get_project_path(project_name)
+    pm = PlotManager(proj)
+    pm.load()
+    pp = pm.add_plot_point(
+        plot_id=plot_id, title=title, description=description,
+        chapter_assigned=chapter_assigned, emotional_tone=emotional_tone,
+        impacts_characters=impacts_characters or [], estimated_words=estimated_words,
+    )
+    return {"id": pp.id, "plot_id": plot_id, "title": pp.title,
+            "chapter_assigned": pp.chapter_assigned, "status": pp.status.value}
+
+
+def assign_plot_point_to_chapter(project_name: str, plot_id: str,
+                                 point_id: str, chapter: int) -> dict:
+    """把情节点绑定到指定章节（进度绑定）"""
+    proj = _get_project_path(project_name)
+    pm = PlotManager(proj)
+    pm.load()
+    pp = pm.assign_plot_point(plot_id, point_id, chapter)
+    return {"id": pp.id, "plot_id": plot_id, "title": pp.title,
+            "chapter_assigned": pp.chapter_assigned}
+
+
+def bind_plot_points_to_chapter(project_name: str, plot_id: str,
+                                chapter: int, point_ids: list[str]) -> dict:
+    """批量把剧情线的多个情节点绑定到指定章节"""
+    proj = _get_project_path(project_name)
+    pm = PlotManager(proj)
+    pm.load()
+    return pm.bind_plot_points_to_chapter(plot_id, chapter, point_ids)
+
+
+def auto_advance_plot(project_name: str, chapter_number: int) -> dict:
+    """章节完成后自动推进：把绑定到该章的情节点标记为完成，剧情线进度自动上涨"""
+    proj = _get_project_path(project_name)
+    pm = PlotManager(proj)
+    pm.load()
+    return pm.auto_advance_plot(chapter_number)
+
+
+def check_chapter_alignment(project_name: str, chapter_number: int) -> dict:
+    """写后对照：本章实际内容 vs 锚点（规划）。锚点事件缺失即报告偏离"""
+    import re as _re
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    ch = sm.get_chapter(chapter_number)
+    if not ch:
+        return {"error": f"第{chapter_number}章不存在"}
+    anchor = getattr(ch, "anchor", "") or ch.summary or ""
+    content = "\n".join(sc.content for sc in ch.scenes if sc.content.strip())
+    if not anchor:
+        return {
+            "chapter_number": chapter_number,
+            "title": ch.title,
+            "aligned": None,
+            "message": "本章无锚点，无法对照。可用 set_chapter_anchor 设置，或从骨架文档导入后重查",
+        }
+    keywords = _extract_anchor_keywords(anchor)
+    found = [kw for kw in keywords if kw in content]
+    missing = [kw for kw in keywords if kw not in content]
+    return {
+        "chapter_number": chapter_number,
+        "title": ch.title,
+        "aligned": len(missing) == 0,
+        "anchor": anchor[:200],
+        "found_events": found,
+        "missing_events": missing,
+        "content_words": len(content),
+    }
+
+
+def _extract_anchor_keywords(anchor: str) -> list[str]:
+    """从锚点文本抽取关键词（启发式）：按标点切分取词组，不足时补双字滑窗"""
+    import re as _re
+    _STOP = set("的了在是与和及之也但而就都又把被对从向往到着过让给这那我要你他她它们以因因为如此可以没有不能还是这样那样什么个只")
+    parts = _re.split(r"[，。、；：！？…\s（）()【】\[\]：\-—\n\"'“”‘’]+", anchor)
+    result: list[str] = []
+    for p in parts:
+        p = p.strip().strip("*")
+        if len(p) < 2:
+            continue
+        if all(c in _STOP for c in p):
+            continue
+        if p not in result:
+            result.append(p)
+    if not result:
+        for i in range(len(anchor) - 1):
+            bigram = anchor[i:i + 2]
+            if bigram[0] in _STOP or bigram[1] in _STOP:
+                continue
+            if bigram not in result:
+                result.append(bigram)
+    return result[:15]
+
+
+def global_replace(project_name: str, old: str, new: str,
+                   in_titles: bool = False, in_summaries: bool = False) -> dict:
+    """全书查找替换：改设定/人名时不用一章章翻。默认只替换场景正文"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.global_replace(old, new, in_titles=in_titles, in_summaries=in_summaries)
+
+
+def merge_scenes(project_name: str, chapter: int,
+                 scene_a: int, scene_b: int) -> dict:
+    """合并章内两个场景：内容并入 scene_a，删除 scene_b"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.merge_scenes(chapter, scene_a, scene_b)
+
+
+def split_scene(project_name: str, chapter: int,
+                scene_index: int, split_at: int) -> dict:
+    """按字符位置拆分场景为两个场景"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.split_scene(chapter, scene_index, split_at)
+
+
+def story_timeline(project_name: str) -> dict:
+    """故事内时间轴：各章场景的 time_point + timeline_events 表"""
+    proj = _get_project_path(project_name)
+    sm = StoryManager(proj)
+    sm.load_story()
+    return sm.story_timeline()
