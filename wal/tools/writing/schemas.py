@@ -197,7 +197,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "add_chapter",
-            "description": "向故事添加新章节。不指定章节号则自动追加到末尾。指定章节号时必须唯一，且该号未被占用。",
+            "description": "向故事添加新章节。建议根据章节在故事中的位置指定合适的 word_count_target：高潮章节 4000-6000，常规章节 2500-4000，过渡/间章 1500-2500。不指定章节号则自动追加到末尾。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -211,7 +211,7 @@ TOOL_DEFINITIONS = [
                     },
                     "word_count_target": {
                         "type": "integer",
-                        "description": "目标字数，默认3000",
+                        "description": "目标字数。默认 3000，但应根据章节类型灵活设定：高潮章 4000-6000，常规章 2500-4000，过渡/间章 1500-2500。叙事完整性优先，不必死守数字",
                     },
                     "chapter_number": {
                         "type": "integer",

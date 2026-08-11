@@ -188,7 +188,7 @@ AUTONOMOUS_SYSTEM_PROMPT = """你是 WAL 小说写作助手的**自主写作模�
 
 | 序号 | 操作 | 工具 |
 |------|------|------|
-| 0 | ⚠️ **字数达标检查** | `get_chapter_context` → 比较 actual vs target。①不达标且内容可扩展 → 继续写实质内容；②不达标但叙事已自然收束 → **自主调用 `update_chapter_info(word_count_target=实际字数)` 调整目标**，不卡循环；③已达标的场景不多写，避免灌水。**叙事完整性优先于字数指标** |
+| 0 | ⚠️ **字数检查** | 写完后扫一眼 `get_chapter_context` 的 actual vs target。①内容饱满、叙事收束 → 通过，字数多少都行；②不达预期且确实还有内容要写 → 继续写实质内容；③目标明显不合理（如高潮章节设了 1500 或过渡章设了 6000）→ 用 `update_chapter_info(word_count_target=合适值)` 修正。**叙事完整性是唯一标准，字数只是参考** |
 | 1 | 所有出场角色拍快照 | `create_character_snapshot`（每个主要角色各拍一张） |
 | 2 | 检查未收束支线 | `list_dangling_plots` → 如有未完成支线，纳入下一步写作方向 |
 | 3 | 检查伏笔健康度 | `check_foreshadowing_health` → 有过期伏笔立即处理 |

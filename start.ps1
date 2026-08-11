@@ -1,15 +1,15 @@
 ﻿# ============================================================
 #  WAL 小说写作 Agent — PowerShell 启动脚本
-#
+#   
 #  用法:
 #    .\start.ps1                    # 交互选择项目
 #    .\start.ps1 修仙传奇            # 直接打开指定项目
-#    .\start.ps1 修仙传奇 --model deepseek-reasoner  # 指定模型
+#    .\start.ps1 修仙传奇 --model deepseek-reasoner  # 指定模型 deepseek-v4-flash/deepseek-v4-pro
 # ============================================================
 
 param(
     [string]$ProjectName = "",
-    [string]$Model = "deepseek-v4-pro",
+    [string]$Model = "deepseek-v4-flash",
     [string]$BaseUrl = "https://api.deepseek.com/v1",
     [switch]$Quiet,
     [ValidateSet("writing", "planning", "autonomous")]
