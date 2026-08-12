@@ -273,14 +273,25 @@ class StoryRepository(DatabaseRepository):
                             chapter_summary: str, scene_id: str, scene_title: str,
                             content: str, characters: str, location: str,
                             plot_refs: str) -> None:
-        """将场景内容加入 FTS5 全文搜索索引"""
-        self._execute(
-            """INSERT OR REPLACE INTO content_fts (chapter_id, chapter_title, chapter_summary,
-               scene_id, scene_title, scene_content, characters_present, locations, plot_references)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (chapter_id, chapter_title, chapter_summary, scene_id, scene_title,
-             content, characters, location, plot_refs),
-        )
+        """将场景内容加入 FTS5 全文搜索索引（幂等：先删旧行再插）
+
+        写入前用 fts_prepare 把中文拆成逐字 token（unicode61 不切中文词，
+        否则中文搜索恒空）。
+        """
+        from .fts_util import fts_prepare
+
+        with self.db.get_conn() as conn:
+            # 先删旧索引行 → 每次更新不累积重复行
+            conn.execute("DELETE FROM content_fts WHERE scene_id = ?", (scene_id,))
+            conn.execute(
+                """INSERT INTO content_fts (chapter_id, chapter_title, chapter_summary,
+                   scene_id, scene_title, scene_content, characters_present, locations, plot_references)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (chapter_id, fts_prepare(chapter_title), fts_prepare(chapter_summary),
+                 scene_id, fts_prepare(scene_title), fts_prepare(content),
+                 fts_prepare(characters), fts_prepare(location), fts_prepare(plot_refs)),
+            )
+            conn.commit()
 
     def remove_scene_from_fts(self, scene_id: str) -> None:
         """从 FTS5 索引中移除场景"""
@@ -289,15 +300,37 @@ class StoryRepository(DatabaseRepository):
         )
 
     def search_fts(self, query: str, limit: int = 20) -> list[dict]:
-        """全文搜索，返回匹配的场景"""
+        """全文搜索，返回匹配的场景（展示内容取真实正文，与 IndexRepository 一致）"""
+        from .fts_util import fts_query
+
         rows = self._fetch_all(
-            """SELECT chapter_id, chapter_title, chapter_summary, scene_id, scene_title,
-               snippet(content_fts, 2, '<b>', '</b>', '...', 40) AS snippet,
-               characters_present, locations
-               FROM content_fts WHERE content_fts MATCH ? LIMIT ?""",
-            (query, limit),
+            """SELECT c.id AS chapter_id, c.title AS chapter_title, c.summary AS chapter_summary,
+                      s.id AS scene_id, s.title AS scene_title, s.content AS snippet,
+                      s.characters_present AS characters_present, s.location_id AS locations
+               FROM content_fts f
+               JOIN scenes s ON s.id = f.scene_id
+               JOIN chapters c ON c.id = f.chapter_id
+               WHERE content_fts MATCH ? ORDER BY f.rank LIMIT ?""",
+            (fts_query(query), limit),
         )
-        return [dict(r) for r in rows]
+        return [self._display_fts_row(r) for r in rows]
+
+    @staticmethod
+    def _display_fts_row(r: dict) -> dict:
+        """展示行：characters_present 的 JSON/逗号串 → 可读字符串"""
+        r = dict(r)
+        chars = r.get("characters_present")
+        if isinstance(chars, str):
+            try:
+                parsed = json.loads(chars)
+                if isinstance(parsed, list):
+                    chars = ", ".join(str(x) for x in parsed)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        r["characters_present"] = chars or ""
+        r["locations"] = r.get("locations") or ""
+        r["snippet"] = r.get("snippet") or ""
+        return r
 
     # ═══ 聚合查询 ═════════════════════════════════════════════════
 

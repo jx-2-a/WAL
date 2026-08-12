@@ -4,10 +4,28 @@
 提供全文搜索、关键词索引、里程碑快照。
 """
 
+import json
 from datetime import datetime
 from typing import Optional
 
 from .base import DatabaseRepository
+
+
+def _to_comma_str(value) -> str:
+    """DB 里的 JSON 列表 → 逗号分隔字符串（FTS 重建 / 自动索引用）"""
+    if value in (None, ""):
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(x) for x in value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return ", ".join(str(x) for x in parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return value
+    return str(value)
 
 
 class IndexRepository(DatabaseRepository):
@@ -114,51 +132,52 @@ class IndexRepository(DatabaseRepository):
 
     # ═══ FTS5 全文搜索 ══════════════════════════════════════════
 
+    # FTS 表存储的是「预分词」文本（汉字间插空格），只用于 MATCH 匹配；
+    # 展示字段一律 JOIN 回真实的 scenes / chapters 表，避免预分词空格
+    # 污染显示（如标题「第一章 苏醒」被折叠成「第一章苏醒」）。
+    # 注：FTS5 的 MATCH 左侧必须写真实表名（不能是别名，如 f MATCH 报错）
+    _FTS_SELECT_DISPLAY = """SELECT
+                c.id AS chapter_id, c.title AS chapter_title, c.summary AS chapter_summary,
+                s.id AS scene_id, s.title AS scene_title, s.content AS snippet,
+                s.characters_present AS characters_present, s.location_id AS locations
+               FROM content_fts f
+               JOIN scenes s ON s.id = f.scene_id
+               JOIN chapters c ON c.id = f.chapter_id"""
+
+    @staticmethod
+    def _display_row(r: dict) -> dict:
+        """展示行：characters_present 的 JSON/逗号串 → 可读字符串"""
+        r = dict(r)
+        r["characters_present"] = _to_comma_str(r.get("characters_present"))
+        r["locations"] = r.get("locations") or ""
+        r["snippet"] = r.get("snippet") or ""
+        return r
+
     def search_fulltext(self, query: str, limit: int = 20) -> list[dict]:
-        """FTS5 全文搜索，返回匹配的场景及高亮片段"""
-        # 使用 FTS5 snippet 函数生成高亮片段
+        """FTS5 全文搜索，返回匹配的场景（展示内容取真实正文）"""
+        from .fts_util import fts_query
+
         rows = self._fetch_all(
-            """SELECT
-                chapter_id, chapter_title, chapter_summary,
-                scene_id, scene_title,
-                snippet(content_fts, 2, '<b>', '</b>', '...', 50) AS snippet,
-                characters_present, locations
-               FROM content_fts
-               WHERE content_fts MATCH ?
-               ORDER BY rank
-               LIMIT ?""",
-            (query, limit),
+            self._FTS_SELECT_DISPLAY
+            + " WHERE content_fts MATCH ? ORDER BY f.rank LIMIT ?",
+            (fts_query(query), limit),
         )
-        return [dict(r) for r in rows]
+        return [self._display_row(r) for r in rows]
 
     def search_chapter_range(self, start_ch: int, end_ch: int,
                              query: str = "", limit: int = 30) -> list[dict]:
         """在指定章节范围内全文搜索"""
+        from .fts_util import fts_query
+
         if query:
             rows = self._fetch_all(
-                """SELECT
-                    chapter_id, chapter_title, chapter_summary,
-                    scene_id, scene_title,
-                    snippet(content_fts, 2, '<b>', '</b>', '...', 50) AS snippet,
-                    characters_present, locations
-                   FROM content_fts
-                   WHERE content_fts MATCH ?
-                   ORDER BY rank
-                   LIMIT ?""",
-                (query, limit),
+                self._FTS_SELECT_DISPLAY
+                + " WHERE content_fts MATCH ? ORDER BY f.rank LIMIT ?",
+                (fts_query(query), limit),
             )
         else:
             # 无查询词时返回范围内所有已索引场景
-            rows = self._fetch_all(
-                """SELECT
-                    chapter_id, chapter_title, chapter_summary,
-                    scene_id, scene_title,
-                    scene_content AS snippet,
-                    characters_present, locations
-                   FROM content_fts
-                   LIMIT ?""",
-                (limit,),
-            )
+            rows = self._fetch_all(self._FTS_SELECT_DISPLAY + " LIMIT ?", (limit,))
         # 按章节号过滤（从 chapter_id 中提取）
         result = []
         for r in rows:
@@ -167,7 +186,7 @@ class IndexRepository(DatabaseRepository):
             try:
                 ch_num = int(ch_id.replace("ch_", ""))
                 if start_ch <= ch_num <= end_ch:
-                    result.append(dict(r))
+                    result.append(self._display_row(r))
             except (ValueError, AttributeError):
                 pass
         return result[:limit]
@@ -176,15 +195,22 @@ class IndexRepository(DatabaseRepository):
                     scene_id: str, scene_title: str, content: str,
                     characters_present: str = "", location: str = "",
                     plot_references: str = "") -> None:
-        """索引一个场景到 FTS5"""
-        self._execute(
-            """INSERT OR REPLACE INTO content_fts
-               (chapter_id, chapter_title, chapter_summary, scene_id, scene_title,
-                scene_content, characters_present, locations, plot_references)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (chapter_id, chapter_title, chapter_summary, scene_id, scene_title,
-             content, characters_present, location, plot_references),
-        )
+        """索引一个场景到 FTS5（幂等：先删旧行再插，中文逐字预分词）"""
+        from .fts_util import fts_prepare
+
+        with self.db.get_conn() as conn:
+            conn.execute("DELETE FROM content_fts WHERE scene_id = ?", (scene_id,))
+            conn.execute(
+                """INSERT INTO content_fts
+                   (chapter_id, chapter_title, chapter_summary, scene_id, scene_title,
+                    scene_content, characters_present, locations, plot_references)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (chapter_id, fts_prepare(chapter_title), fts_prepare(chapter_summary),
+                 scene_id, fts_prepare(scene_title), fts_prepare(content),
+                 fts_prepare(characters_present), fts_prepare(location),
+                 fts_prepare(plot_references)),
+            )
+            conn.commit()
 
     def remove_scene_index(self, scene_id: str) -> None:
         """从 FTS5 中移除场景"""
@@ -212,9 +238,9 @@ class IndexRepository(DatabaseRepository):
                     scene_id=sc["scene_id"],
                     scene_title=sc["scene_title"] or "",
                     content=sc["content"],
-                    characters_present=sc["characters_present"] or "",
+                    characters_present=_to_comma_str(sc["characters_present"]),
                     location=sc["location_id"] or "",
-                    plot_references=sc["plot_advancements"] or "",
+                    plot_references=_to_comma_str(sc["plot_advancements"]),
                 )
                 count += 1
         return count

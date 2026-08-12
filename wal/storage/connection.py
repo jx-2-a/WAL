@@ -13,6 +13,23 @@ from pathlib import Path
 from typing import Optional
 
 
+def _as_str_list(value) -> list[str]:
+    """把 DB 里的 JSON 列表 / 逗号串 / 原值统一转成 str 列表（FTS 重建用）"""
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [str(x) for x in value]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(x) for x in parsed]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return [value]
+    return [str(value)]
+
+
 # ── 完整数据库架构 DDL ──────────────────────────────────────────────
 
 SCHEMA_DDL = """
@@ -298,7 +315,10 @@ CREATE INDEX IF NOT EXISTS idx_cindex_story ON content_index(story_id);
 CREATE INDEX IF NOT EXISTS idx_cindex_keyword ON content_index(story_id, keyword);
 CREATE INDEX IF NOT EXISTS idx_cindex_category ON content_index(story_id, category);
 
--- FTS5 全文搜索（外部内容表模式）
+-- FTS5 全文搜索（普通表 + unicode61 + 中文逐字预分词）
+-- 注：不再用 contentless(content='')——contentless 下 snippet() 恒 NULL
+-- 且 INSERT OR REPLACE 语义不靠谱；中文检索靠 fts_util.fts_prepare 在
+-- 写入前把连续汉字拆成逐字 token（unicode61 不切中文词，否则搜不到）。
 CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(
     chapter_id,
     chapter_title,
@@ -309,8 +329,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(
     characters_present,
     locations,
     plot_references,
-    content='',
-    content_rowid='rowid',
     tokenize='unicode61 remove_diacritics 1'
 );
 
@@ -436,10 +454,78 @@ class Database:
     def init_schema(self) -> None:
         """初始化所有表和索引（幂等 — 使用 IF NOT EXISTS）"""
         with self.get_conn() as conn:
+            # 旧版 contentless FTS 表 → 先 DROP，随后由 SCHEMA_DDL 按新式重建
+            fts_rebuilt = self._prepare_fts_schema(conn)
             conn.executescript(SCHEMA_DDL)
             conn.executescript(DEFAULT_CONFIG_DDL)
             # 增量迁移：为新版本添加缺失的列
             self._migrate_columns(conn)
+            # FTS 迁移后从 scenes 回灌索引；或索引为空但库里有正文时兜底重建
+            if fts_rebuilt or self._fts_needs_rebuild(conn):
+                self._rebuild_fts(conn)
+
+    def _prepare_fts_schema(self, conn: sqlite3.Connection) -> bool:
+        """检测旧版 contentless FTS 表并 DROP，返回是否需重建索引
+
+        旧表特征：声明里有 `content_rowid`（contentless 专属标记）。
+        新表是普通 FTS5 表，不含该标记。
+        """
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='content_fts'"
+        ).fetchone()
+        if not row:
+            return False
+        sql = row[0] or ""
+        if "content_rowid" in sql:
+            conn.execute("DROP TABLE content_fts")
+            return True
+        return False
+
+    def _fts_needs_rebuild(self, conn: sqlite3.Connection) -> bool:
+        """FTS 索引为空但库里有正文 → 需要重建（迁移中断/手工清空后自愈）"""
+        try:
+            n = conn.execute("SELECT count(*) FROM content_fts").fetchone()[0]
+            if n > 0:
+                return False
+            has_scenes = conn.execute(
+                "SELECT count(*) FROM scenes s JOIN chapters c ON s.chapter_id = c.id "
+                "WHERE c.story_id = 'main' AND length(trim(s.content)) > 0"
+            ).fetchone()[0]
+            return has_scenes > 0
+        except Exception:
+            return False
+
+    def _rebuild_fts(self, conn: sqlite3.Connection) -> int:
+        """全量重建 FTS 索引：从 scenes JOIN chapters 回灌，中文逐字预分词"""
+        from .fts_util import fts_prepare
+
+        rows = conn.execute(
+            """SELECT s.id AS scene_id, s.title AS scene_title, s.content,
+                      s.characters_present, s.location_id, s.plot_advancements,
+                      c.id AS chapter_id, c.title AS chapter_title, c.summary AS chapter_summary
+               FROM scenes s JOIN chapters c ON s.chapter_id = c.id
+               WHERE c.story_id = 'main'"""
+        ).fetchall()
+        conn.execute("DELETE FROM content_fts")
+        count = 0
+        for r in rows:
+            content = r["content"] or ""
+            if not content.strip():
+                continue
+            chars = _as_str_list(r["characters_present"])
+            plots = _as_str_list(r["plot_advancements"])
+            conn.execute(
+                """INSERT INTO content_fts
+                   (chapter_id, chapter_title, chapter_summary, scene_id, scene_title,
+                    scene_content, characters_present, locations, plot_references)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (r["chapter_id"], r["chapter_title"] or "", r["chapter_summary"] or "",
+                 r["scene_id"], r["scene_title"] or "", fts_prepare(content),
+                 ", ".join(chars), r["location_id"] or "", ", ".join(plots)),
+            )
+            count += 1
+        conn.commit()
+        return count
 
     def schema_exists(self) -> bool:
         """检查数据库是否已初始化"""

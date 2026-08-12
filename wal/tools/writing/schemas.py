@@ -1705,7 +1705,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "check_chapter_alignment",
-            "description": "写后对照：本章实际内容 vs 锚点（规划）。锚点事件未出现即报告偏离，输出「规划 vs 实际」缺失清单。",
+            "description": "写后对照：本章实际内容 vs 锚点（规划）。关键词级匹配——按锚点逐字覆盖命中率判定对齐（覆盖率≥40% 且≥2个关键词命中即对齐，容忍近义改写/刻意省略的人名地名），输出命中/缺失清单。",
             "parameters": {
                 "type": "object",
                 "properties": {

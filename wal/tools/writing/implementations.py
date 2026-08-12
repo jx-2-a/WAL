@@ -1095,8 +1095,15 @@ def auto_advance_plot(project_name: str, chapter_number: int) -> dict:
 
 
 def check_chapter_alignment(project_name: str, chapter_number: int) -> dict:
-    """写后对照：本章实际内容 vs 锚点（规划）。锚点事件缺失即报告偏离"""
-    import re as _re
+    """写后对照：本章实际内容 vs 锚点（规划）。锚点关键内容缺失即报告偏离
+
+    关键词级匹配（不再整句精确匹配）：在锚点里做贪心最长子串匹配，
+    覆盖率 = 锚点中被正文覆盖的汉字数 / 锚点总汉字数。
+    覆盖率 ≥ 40% 且 ≥2 个关键词命中即判对齐——文学正文几乎不可能整句
+    复现锚点短语，逐字覆盖才是可靠信号；锚点与正文的已知差异（刻意省略
+    的人名、改名地点、近义改写）只降低少量覆盖率，不会导致误报。未覆盖
+    的锚点内容列入 missing_events 供人工核对。
+    """
     proj = _get_project_path(project_name)
     sm = StoryManager(proj)
     sm.load_story()
@@ -1112,42 +1119,112 @@ def check_chapter_alignment(project_name: str, chapter_number: int) -> dict:
             "aligned": None,
             "message": "本章无锚点，无法对照。可用 set_chapter_anchor 设置，或从骨架文档导入后重查",
         }
-    keywords = _extract_anchor_keywords(anchor)
-    found = [kw for kw in keywords if kw in content]
-    missing = [kw for kw in keywords if kw not in content]
+    coverage, matched_chars, total_chars, found, missing = _match_anchor_to_content(
+        anchor, content)
+    # 关键词级判定：覆盖率达标（≥40%）且至少 2 个独立关键词命中 → 对齐。
+    # 刻意省略的人名/改名地点/近义改写只降少量覆盖率，不会触发误报；
+    # 完全没写的锚点内容会列在 missing_events 供人工核对。
+    aligned = coverage >= _ALIGN_THRESHOLD and len(found) >= _ALIGN_MIN_MATCHES
     return {
         "chapter_number": chapter_number,
         "title": ch.title,
-        "aligned": len(missing) == 0,
+        "aligned": aligned,
+        "coverage": round(coverage, 2),
+        "matched_chars": matched_chars,
+        "anchor_chars": total_chars,
         "anchor": anchor[:200],
         "found_events": found,
         "missing_events": missing,
         "content_words": len(content),
+        "message": (
+            f"对齐：正文覆盖锚点关键词 {len(found)} 处/{matched_chars} 字"
+            f"（覆盖率 {coverage:.0%} ≥ 40%）"
+            if aligned else
+            f"偏离：正文仅覆盖锚点 {matched_chars}/{total_chars} 字"
+            f"（覆盖率 {coverage:.0%} < 40%），以下锚点内容未见："
+            f"{'、'.join(missing[:6]) or '无'}"
+        ),
     }
 
 
-def _extract_anchor_keywords(anchor: str) -> list[str]:
-    """从锚点文本抽取关键词（启发式）：按标点切分取词组，不足时补双字滑窗"""
-    import re as _re
-    _STOP = set("的了在是与和及之也但而就都又把被对从向往到着过让给这那我要你他她它们以因因为如此可以没有不能还是这样那样什么个只")
-    parts = _re.split(r"[，。、；：！？…\s（）()【】\[\]：\-—\n\"'“”‘’]+", anchor)
-    result: list[str] = []
-    for p in parts:
-        p = p.strip().strip("*")
-        if len(p) < 2:
+_ALIGN_THRESHOLD = 0.4
+_ALIGN_MIN_MATCHES = 2
+
+
+def _is_cjk(ch: str) -> bool:
+    """是否汉字（CJK 基本区 + 扩展A + 兼容表意文字）"""
+    return ('一' <= ch <= '鿿') or ('㐀' <= ch <= '䶿') or ('豈' <= ch <= '﫿')
+
+
+def _match_anchor_to_content(anchor: str, content: str,
+                             max_match: int = 12, min_match: int = 2) -> tuple:
+    """贪心最长子串匹配：量锚点在正文里的覆盖（无需分词器）
+
+    从锚点每个汉字位置出发找「正文里存在的最长子串」，命中则跳过；
+    连续命中段合并为 found 片段；未覆盖的 ≥2 字汉字段归为 missing。
+
+    Returns:
+        (coverage, matched_chars, total_chars, found, missing)
+        - coverage: 命中汉字数 / 锚点汉字数（0~1）
+        - found: 命中的锚点片段（合并连续段，去重）
+        - missing: 未覆盖的锚点汉字段（≥2 字连续）
+    """
+    n = len(anchor)
+    i = 0
+    matched_chars = 0
+    spans: list[tuple[int, int]] = []
+    while i < n:
+        ch = anchor[i]
+        if not _is_cjk(ch):
+            i += 1
             continue
-        if all(c in _STOP for c in p):
-            continue
-        if p not in result:
-            result.append(p)
-    if not result:
-        for i in range(len(anchor) - 1):
-            bigram = anchor[i:i + 2]
-            if bigram[0] in _STOP or bigram[1] in _STOP:
-                continue
-            if bigram not in result:
-                result.append(bigram)
-    return result[:15]
+        best = 0
+        for L in range(min(max_match, n - i), 0, -1):
+            if anchor[i:i + L] in content:
+                best = L
+                break
+        if best >= min_match:
+            matched_chars += best
+            spans.append((i, i + best))
+            i += best
+        else:
+            i += 1
+    # 合并连续命中的 span
+    merged: list[tuple[int, int]] = []
+    for s, e in spans:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+    found: list[str] = []
+    for s, e in merged:
+        txt = anchor[s:e].strip("*").strip()
+        if txt and txt not in found:
+            found.append(txt)
+    # 未覆盖的锚点汉字段
+    covered = [False] * n
+    for s, e in spans:
+        for k in range(s, e):
+            covered[k] = True
+    missing: list[str] = []
+    cur = ""
+    for k in range(n):
+        if not _is_cjk(anchor[k]):
+            if len(cur) >= 2:
+                missing.append(cur)
+            cur = ""
+        elif not covered[k]:
+            cur += anchor[k]
+        else:
+            if len(cur) >= 2:
+                missing.append(cur)
+            cur = ""
+    if len(cur) >= 2:
+        missing.append(cur)
+    # 分母 = 锚点全部汉字数（与匹配位置无关，避免命中段内部字被漏算）
+    total_chars = sum(1 for c in anchor if _is_cjk(c))
+    coverage = matched_chars / total_chars if total_chars else 0.0
+    return coverage, matched_chars, total_chars, found[:20], missing[:20]
 
 
 def global_replace(project_name: str, old: str, new: str,

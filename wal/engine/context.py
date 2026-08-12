@@ -298,7 +298,7 @@ class ContextManager:
 
             ctx_lines = ["\n## 检索到的相关上下文（来自全文搜索）\n"]
             for r in results[:5]:
-                snippet = r.get("snippet", "")
+                snippet = r.get("snippet") or ""
                 snippet_text = snippet.replace("<b>", "").replace("</b>", "")
                 ch_title = r.get("chapter_title", "")
                 scene_title = r.get("scene_title", "")
