@@ -1133,6 +1133,92 @@ class StoryManager:
             parts.append("（本章暂无正文）")
         return "\n".join(parts)
 
+    # ============================================================
+    #  场景级导出（按场景/节拆文件）
+    # ============================================================
+
+    def _get_scene(self, chapter_number: int, scene_index: int):
+        """取章节内指定场景；越界或场景无正文返回 None"""
+        ch = self.get_chapter(chapter_number)
+        if not ch:
+            return None
+        if scene_index < 0 or scene_index >= len(ch.scenes):
+            return None
+        sc = ch.scenes[scene_index]
+        if not sc.content.strip():
+            return None
+        return sc
+
+    def export_scene_plain(self, chapter_number: int, scene_index: int) -> str:
+        """导出单章内某个场景为纯文本（含章节标题头，不写"场景N"）"""
+        sc = self._get_scene(chapter_number, scene_index)
+        if not sc:
+            return ""
+        ch = self.get_chapter(chapter_number)
+        parts = []
+        if ch.title:
+            parts.append(f"{ch.number} {ch.title}")
+        else:
+            parts.append(str(ch.number))
+        parts.append("")
+        parts.append(sc.content)
+        return "\n".join(parts)
+
+    def export_scene_markdown(self, chapter_number: int, scene_index: int) -> str:
+        """导出单章内某个场景为 Markdown（含章节标题头）"""
+        sc = self._get_scene(chapter_number, scene_index)
+        if not sc:
+            return ""
+        ch = self.get_chapter(chapter_number)
+        lines = [f"# 第{ch.number}章 {ch.title}", ""]
+        if ch.summary:
+            lines.append(f"> *{ch.summary}*")
+            lines.append("")
+        lines.append(sc.content)
+        return "\n".join(lines)
+
+    def export_scene_html(self, chapter_number: int, scene_index: int) -> str:
+        """导出单章内某个场景为 HTML（含章节标题头）"""
+        sc = self._get_scene(chapter_number, scene_index)
+        if not sc:
+            return ""
+        ch = self.get_chapter(chapter_number)
+        parts = [
+            '<!DOCTYPE html><html><head><meta charset="utf-8">',
+            f'<title>第{ch.number}章 {ch.title}</title>',
+            '<style>body{max-width:800px;margin:0 auto;padding:20px;',
+            'font-family:"Microsoft YaHei",sans-serif;line-height:1.8}',
+            'h1{text-align:center}</style></head><body>',
+            f'<h1>第{ch.number}章 {ch.title}</h1>',
+        ]
+        if ch.summary:
+            parts.append(f'<blockquote>{ch.summary}</blockquote>')
+        parts.append(f'<p>{sc.content.replace(chr(10), "<br>")}</p>')
+        parts.append('</body></html>')
+        return "\n".join(parts)
+
+    def export_scene_docx(self, chapter_number: int, scene_index: int) -> 'Document':
+        """导出单章内某个场景为 python-docx Document（含章节标题头）"""
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        ch = self.get_chapter(chapter_number)
+        doc = self._docx_styled()
+        if not ch:
+            doc.add_paragraph(f"（第{chapter_number}章不存在）")
+            return doc
+        sc = self._get_scene(chapter_number, scene_index)
+        if not sc:
+            doc.add_paragraph(f"（第{chapter_number}章第{scene_index + 1}节暂无正文）")
+            return doc
+
+        title = doc.add_heading(f'第{ch.number}章  {ch.title}', level=1)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for para_text in sc.content.split('\n'):
+            para_text = para_text.strip()
+            if para_text:
+                doc.add_paragraph(para_text)
+        return doc
+
     def batch_export(self, start_ch: int, end_ch: int, fmt: str = "markdown",
                      output_dir: str = "") -> dict[str, str]:
         """批量导出章节
@@ -1390,7 +1476,8 @@ class StoryManager:
         return safe[:50] if safe else "untitled"
 
     def export_novel_files(self, output_dir: str, mode: str = "volume",
-                           fmt: str = "plain", structure: str = "full") -> dict:
+                           fmt: str = "plain", structure: str = "full",
+                           split_scenes: bool = False) -> dict:
         """导出正文到磁盘文件，按卷分层组织
 
         这是面向读者的正文导出功能。与返回字符串的 export_* 不同，
@@ -1407,6 +1494,9 @@ class StoryManager:
             structure: 内部结构（仅 mode="single" 时生效）
                 - "full": 完整层级：部→卷→章（默认）
                 - "flat": 纯章节排列，无卷/部标题（简洁阅读版）
+            split_scenes: 是否按场景（节）拆文件。为 true 时一章内的每个
+                场景单独写一个文件，文件名形如「第01章_晨钟_节1.txt」。
+                仅 volume / chapter 模式生效，single 模式忽略。
 
         Returns:
             {
@@ -1415,7 +1505,8 @@ class StoryManager:
                 "mode": 使用的组织方式,
                 "format": 格式,
                 "volumes": 卷数,
-                "chapters_exported": 成功导出的章节数,
+                "chapters_exported": 成功导出的章节数（场景拆分时=写出过文件的章节数）,
+                "scenes_exported": 场景拆分时写出的场景文件数,
                 "total_words": 总字数,
                 "files": [文件路径列表],
                 "structure": 目录结构文本,
@@ -1547,6 +1638,49 @@ class StoryManager:
         if fmt == "docx":
             write_func = write_chapter_docx
 
+        scenes_exported = 0
+
+        # 场景级导出器（按场景拆文件时使用）
+        scene_exporters = {
+            "plain": self.export_scene_plain,
+            "markdown": self.export_scene_markdown,
+            "html": self.export_scene_html,
+            "docx": self.export_scene_docx,
+        }
+        sc_exporter = scene_exporters.get(fmt, self.export_scene_plain)
+
+        def write_chapter_files(ch_dir, ch_row):
+            """写一章的文件；split_scenes 时按场景拆成多个文件，返回写出的文件数"""
+            ch_num = ch_row.get("number", 0)
+            ch_title = ch_row.get("title", "")
+            safe_ch = re.sub(r'[\\/*?:"<>|]', "", f"第{ch_num:02d}章_{ch_title}")[:60]
+            count = 0
+            if split_scenes:
+                ch = self.get_chapter(ch_num)
+                if not ch:
+                    return 0
+                for si, sc in enumerate(ch.scenes):
+                    if not sc.content.strip():
+                        continue
+                    fname = f"{safe_ch}_节{si + 1}{ext}"
+                    fpath = ch_dir / fname
+                    if fmt == "docx":
+                        sc_exporter(ch_num, si).save(str(fpath))
+                    else:
+                        content = sc_exporter(ch_num, si)
+                        if not content or not content.strip():
+                            continue
+                        fpath.write_text(content, encoding="utf-8")
+                    files_written.append(str(fpath))
+                    count += 1
+            else:
+                fname = f"{safe_ch}{ext}"
+                fpath = ch_dir / fname
+                if write_func(fpath, ch_num):
+                    files_written.append(str(fpath))
+                    count += 1
+            return count
+
         if mode == "volume" and all_volumes:
             # 按卷分层：novel_dir/第N卷 卷名/ch_XXX 章名.ext
             novel_dir = out / safe_novel
@@ -1576,29 +1710,20 @@ class StoryManager:
 
                 ch_rows = vol_chapter_map.get(vid, [])
                 for ch_row in ch_rows:
-                    ch_num = ch_row.get("number", 0)
-                    ch_title = ch_row.get("title", "")
-                    safe_ch = re.sub(r'[\\/*?:"<>|]', "", f"第{ch_num:02d}章_{ch_title}")
-                    fname = f"{safe_ch[:60]}{ext}"
-                    fpath = vol_dir / fname
-
-                    if write_func(fpath, ch_num):
-                        files_written.append(str(fpath))
+                    n = write_chapter_files(vol_dir, ch_row)
+                    if n:
                         chapters_exported += 1
+                        scenes_exported += n if split_scenes else 0
 
             # 无归属章节
             if orphan:
                 misc_dir = novel_dir / "独立章节"
                 misc_dir.mkdir(parents=True, exist_ok=True)
                 for ch_row in orphan:
-                    ch_num = ch_row.get("number", 0)
-                    ch_title = ch_row.get("title", "")
-                    safe_ch = re.sub(r'[\\/*?:"<>|]', "", f"第{ch_num:02d}章_{ch_title}")
-                    fname = f"{safe_ch[:60]}{ext}"
-                    fpath = misc_dir / fname
-                    if write_func(fpath, ch_num):
-                        files_written.append(str(fpath))
+                    n = write_chapter_files(misc_dir, ch_row)
+                    if n:
                         chapters_exported += 1
+                        scenes_exported += n if split_scenes else 0
 
         else:
             # 单层模式（chapter）：所有章节在一个文件夹下
@@ -1606,17 +1731,26 @@ class StoryManager:
             novel_dir.mkdir(parents=True, exist_ok=True)
 
             for ch_row in all_chapters:
-                ch_num = ch_row.get("number", 0)
-                ch_title = ch_row.get("title", "")
-                safe_ch = re.sub(r'[\\/*?:"<>|]', "", f"第{ch_num:02d}章_{ch_title}")
-                fname = f"{safe_ch[:60]}{ext}"
-                fpath = novel_dir / fname
-
-                if write_func(fpath, ch_num):
-                    files_written.append(str(fpath))
+                n = write_chapter_files(novel_dir, ch_row)
+                if n:
                     chapters_exported += 1
+                    scenes_exported += n if split_scenes else 0
 
         # 生成目录结构描述
+        def scene_fnames(ch_row):
+            """拆分模式下该章的场景文件名列表"""
+            ch = self.get_chapter(ch_row.get("number", 0))
+            if not ch:
+                return []
+            safe_ch = re.sub(
+                r'[\\/*?:"<>|]', "",
+                f"第{ch_row.get('number', 0):02d}章_{ch_row.get('title', '')}",
+            )[:60]
+            return [
+                f"{safe_ch}_节{j + 1}{ext}"
+                for j, sc in enumerate(ch.scenes) if sc.content.strip()
+            ]
+
         structure_lines = [f"{safe_novel}/"]
         if mode == "volume" and all_volumes:
             for vol_row in all_volumes:
@@ -1626,26 +1760,48 @@ class StoryManager:
                 ch_rows = vol_chapter_map.get(vid, [])
                 structure_lines.append(f"├── {safe_vol}/")
                 for i, ch_row in enumerate(ch_rows):
-                    prefix = "│   └──" if i == len(ch_rows) - 1 and not orphan else "│   ├──"
-                    structure_lines.append(
-                        f"{prefix} 第{ch_row.get('number', 0):02d}章 "
-                        f"{ch_row.get('title', '')}{ext}"
-                    )
+                    if split_scenes:
+                        sfs = scene_fnames(ch_row)
+                        for k, sf in enumerate(sfs):
+                            last = i == len(ch_rows) - 1 and not orphan and k == len(sfs) - 1
+                            structure_lines.append(
+                                f"{'│   └──' if last else '│   ├──'} {sf}"
+                            )
+                    else:
+                        prefix = "│   └──" if i == len(ch_rows) - 1 and not orphan else "│   ├──"
+                        structure_lines.append(
+                            f"{prefix} 第{ch_row.get('number', 0):02d}章 "
+                            f"{ch_row.get('title', '')}{ext}"
+                        )
             if orphan:
                 structure_lines.append(f"└── 独立章节/")
                 for i, ch_row in enumerate(orphan):
-                    prefix = "    └──" if i == len(orphan) - 1 else "    ├──"
+                    if split_scenes:
+                        sfs = scene_fnames(ch_row)
+                        for k, sf in enumerate(sfs):
+                            last = i == len(orphan) - 1 and k == len(sfs) - 1
+                            structure_lines.append(
+                                f"{'    └──' if last else '    ├──'} {sf}"
+                            )
+                    else:
+                        prefix = "    └──" if i == len(orphan) - 1 else "    ├──"
+                        structure_lines.append(
+                            f"{prefix} 第{ch_row.get('number', 0):02d}章 "
+                            f"{ch_row.get('title', '')}{ext}"
+                        )
+        else:
+            for i, ch_row in enumerate(all_chapters):
+                if split_scenes:
+                    sfs = scene_fnames(ch_row)
+                    for k, sf in enumerate(sfs):
+                        last = i == len(all_chapters) - 1 and k == len(sfs) - 1
+                        structure_lines.append(f"{'└──' if last else '├──'} {sf}")
+                else:
+                    prefix = "└──" if i == len(all_chapters) - 1 else "├──"
                     structure_lines.append(
                         f"{prefix} 第{ch_row.get('number', 0):02d}章 "
                         f"{ch_row.get('title', '')}{ext}"
                     )
-        else:
-            for i, ch_row in enumerate(all_chapters):
-                prefix = "└──" if i == len(all_chapters) - 1 else "├──"
-                structure_lines.append(
-                    f"{prefix} 第{ch_row.get('number', 0):02d}章 "
-                    f"{ch_row.get('title', '')}{ext}"
-                )
 
         return {
             "status": "ok" if chapters_exported == total_chapters else "partial",
@@ -1654,6 +1810,7 @@ class StoryManager:
             "format": fmt,
             "volumes": len(all_volumes),
             "chapters_exported": chapters_exported,
+            "scenes_exported": scenes_exported,
             "total_chapters": total_chapters,
             "total_words": total_words,
             "files": files_written,

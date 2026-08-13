@@ -194,6 +194,7 @@ def execute_tool(tool_name: str, arguments: dict, project_name: str) -> str:
             arguments.get("mode", "volume"),
             arguments.get("format", "plain"),
             arguments.get("structure", "full"),
+            arguments.get("split_scenes", False),
         ),
         "delete_chapter": lambda: delete_chapter(
             project_name,

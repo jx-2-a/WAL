@@ -909,7 +909,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "export_novel_files",
-            "description": "导出正文到磁盘文件。支持按卷分文件夹、单章平铺，或全书合并为单个文件（总集）。支持 plain/markdown/html/docx 四种格式。docx 格式自带中文排版（微软雅黑12pt，首行缩进，1.5倍行距），不含章节摘要（纯读者版）。structure='flat' 可跳过卷标题直接输出章节，适合纯阅读。推荐在每写完一卷后调用一次。",
+            "description": "导出正文到磁盘文件。支持按卷分文件夹、单章平铺，或全书合并为单个文件（总集）。支持 plain/markdown/html/docx 四种格式。docx 格式自带中文排版（微软雅黑12pt，首行缩进，1.5倍行距），不含章节摘要（纯读者版）。structure='flat' 可跳过卷标题直接输出章节，适合纯阅读。split_scenes=true 时可按场景（节）拆文件，一章内的每个场景单独写一个文件（如「第01章_晨钟_节1.txt」），适合需要逐场景编辑/校对。推荐在每写完一卷后调用一次。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -931,6 +931,10 @@ TOOL_DEFINITIONS = [
                         "type": "string",
                         "enum": ["full", "flat"],
                         "description": "内部结构（仅 mode='single' 时生效）：full=完整层级含部/卷标题（默认，适合有复杂结构的作品）；flat=纯章节排列无卷标题（简洁，直接阅读）。默认 full",
+                    },
+                    "split_scenes": {
+                        "type": "boolean",
+                        "description": "是否按场景（节）拆文件：true 时一章内的每个场景单独写一个文件，文件名形如「第01章_晨钟_节1.txt」（仅 volume/chapter 模式生效）。默认 false（一章一个文件）",
                     },
                 },
                 "required": [],

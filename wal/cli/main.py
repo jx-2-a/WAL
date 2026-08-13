@@ -401,10 +401,14 @@ def cmd_export(args):
     if getattr(args, 'to_files', False):
         split_mode = getattr(args, 'split', 'volume')
         structure = getattr(args, 'structure', 'full')
-        result = sm.export_novel_files(output_dir, mode=split_mode, fmt=fmt, structure=structure)
+        split_scenes = getattr(args, 'split_scenes', False)
+        result = sm.export_novel_files(output_dir, mode=split_mode, fmt=fmt,
+                                       structure=structure, split_scenes=split_scenes)
         print(result.get("structure", ""))
-        print(f"\n格式：{fmt} | 组织方式：{result['mode']}")
-        print(f"已导出 {result['chapters_exported']}/{result['total_chapters']} 章")
+        print(f"\n格式：{fmt} | 组织方式：{result['mode']}"
+              f"{' | 按场景拆文件' if split_scenes else ''}")
+        print(f"已导出 {result['chapters_exported']}/{result['total_chapters']} 章"
+              + (f"（{result.get('scenes_exported', 0)} 个场景文件）" if split_scenes else ""))
         print(f"总字数：{result['total_words']} | 输出目录：{result['output_dir']}")
         return
 
@@ -716,6 +720,7 @@ def main():
     p_exp.add_argument("--output", "-o", help="输出目录")
     p_exp.add_argument("--to-files", action="store_true", help="按卷分文件夹导出为独立文件（推荐）")
     p_exp.add_argument("--split", choices=["volume", "chapter", "single", "auto"], default="volume", help="文件分层方式：volume=按卷分文件夹（默认），chapter=平铺，single=全书合并为单文件（总集），auto=自动")
+    p_exp.add_argument("--split-scenes", action="store_true", help="按场景（节）拆文件：一章内的每个场景单独写一个文件，如「第01章_晨钟_节1.txt」（仅 volume/chapter 分层方式生效）")
     p_exp.add_argument("--structure", choices=["full", "flat"], default="full", help="内部结构（仅 --split single 时生效）：full=含部/卷标题，flat=纯章节排列")
 
     # char list

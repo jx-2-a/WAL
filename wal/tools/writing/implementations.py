@@ -390,7 +390,8 @@ def export_chapter_content(project_name: str, chapter_number: int = 0,
 
 def export_novel_files(project_name: str, output_dir: str = "",
                         mode: str = "volume", fmt: str = "plain",
-                        structure: str = "full") -> dict:
+                        structure: str = "full",
+                        split_scenes: bool = False) -> dict:
     """导出正文为文档文件，按卷分文件夹组织
 
     将已写的场景正文导出为可读的文档文件，组织方式：
@@ -404,6 +405,8 @@ def export_novel_files(project_name: str, output_dir: str = "",
     支持格式：plain(.txt) / markdown(.md) / html(.html) / docx(.docx)
     docx 格式自带中文排版，不含章节摘要（纯读者版）。
     structure="flat" 可跳过卷标题直接输出章节。
+    split_scenes=True 时按场景（节）拆文件，一章内的每个场景单独写一个文件，
+    文件名形如「第01章_晨钟_节1.txt」。仅 volume / chapter 模式生效。
 
     Args:
         project_name: 项目名称
@@ -411,16 +414,19 @@ def export_novel_files(project_name: str, output_dir: str = "",
         mode: 组织方式 — volume / chapter / single / auto
         fmt: 导出格式 — plain / markdown / html / docx
         structure: 内部结构（仅 mode="single" 时生效）— full / flat
+        split_scenes: 是否按场景（节）拆文件，默认 false
 
     Returns:
-        导出结果，含 output_dir、chapters_exported、total_words、目录结构等
+        导出结果，含 output_dir、chapters_exported、scenes_exported、
+        total_words、目录结构等
     """
     proj = _get_project_path(project_name)
     if not output_dir:
         output_dir = str(Path(proj) / "export")
     sm = StoryManager(proj)
     sm.load_story()
-    return sm.export_novel_files(output_dir, mode=mode, fmt=fmt, structure=structure)
+    return sm.export_novel_files(output_dir, mode=mode, fmt=fmt,
+                                 structure=structure, split_scenes=split_scenes)
 
 
 # ============================================================
