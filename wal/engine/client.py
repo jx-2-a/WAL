@@ -18,12 +18,16 @@ class LLMClient:
         base_url: str = "https://api.deepseek.com/v1",
         provider: str = "openai",  # "openai" | "anthropic"
         timeout: int = 120,
+        thinking: bool | None = None,
     ):
         self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.provider = provider
         self.timeout = timeout
+        # 思考模式：默认关闭（省 token/延迟，temperature 才生效）。
+        # 显式传参优先；否则读环境变量 DEEPSEEK_THINKING=1 开启。
+        self.thinking = thinking if thinking is not None else (os.environ.get("DEEPSEEK_THINKING", "0") == "1")
         self._client = httpx.Client(timeout=httpx.Timeout(timeout))
 
     # ============================================================
@@ -62,6 +66,7 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": False,
+            "thinking": {"type": "enabled" if self.thinking else "disabled"},
         }
         if tools:
             body["tools"] = tools
@@ -96,6 +101,7 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            "thinking": {"type": "enabled" if self.thinking else "disabled"},
         }
         if tools:
             body["tools"] = tools
