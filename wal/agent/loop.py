@@ -755,22 +755,27 @@ class AgentLoop:
     #  内部方法
     # ============================================================
 
-    def _handle_tool_calls(self, tool_calls: list[dict], content: str | None = None) -> None:
+    def _handle_tool_calls(self, tool_calls: list[dict], content: str | None = None,
+                           reasoning_content: str | None = None) -> None:
         """执行工具调用，将 assistant(tool_calls) + tool results 追加到消息历史
 
         Args:
             tool_calls: LLM 返回的工具调用列表
             content: LLM 同时附带的文本（如"让我先查看上下文..."），不会丢弃
+            reasoning_content: 本轮的思考链（DeepSeek 思考模式下工具多轮调用须回传）
         """
         # 标记本轮有工具调用（自主模式停止检测用）
         self._had_tool_calls = True
 
-        # 1. 添加 assistant 消息（保留附带文本，不静默丢弃）
-        self.messages.append({
+        # 1. 添加 assistant 消息（保留附带文本，不静默丢弃；思考模式回传 reasoning_content）
+        assistant_msg = {
             "role": "assistant",
             "content": content or None,
             "tool_calls": tool_calls,
-        })
+        }
+        if reasoning_content:
+            assistant_msg["reasoning_content"] = reasoning_content
+        self.messages.append(assistant_msg)
 
         # 2. 逐个执行工具并添加结果
         for tc in tool_calls:

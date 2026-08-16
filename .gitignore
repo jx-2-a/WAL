@@ -39,6 +39,9 @@ Mem/
 # Project data — 用户数据，完全不入库
 projects/
 
+# WAL Web 运行状态（agent_state.json：sid + 项目续接）
+config/
+
 # API密钥 — 绝对不能入库
 .env
 *.env
